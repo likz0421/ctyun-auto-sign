@@ -3,16 +3,16 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '824dd083-f89f-4a78-af8b-c9399eaf8001'
-  PropagateID: '824dd083-f89f-4a78-af8b-c9399eaf8001'
-  ReservedCode1: '3c57bfa8-783c-4b44-a061-e2e30494f9d3'
-  ReservedCode2: '3c57bfa8-783c-4b44-a061-e2e30494f9d3'
+  ProduceID: 'eb7e09f1-738d-4317-ad8e-8ecc30ea2711'
+  PropagateID: 'eb7e09f1-738d-4317-ad8e-8ecc30ea2711'
+  ReservedCode1: '2ce96cd9-b8d2-4415-8d46-e3153c56aae3'
+  ReservedCode2: '2ce96cd9-b8d2-4415-8d46-e3153c56aae3'
 ---
 
 # 天翼云电脑保活自动化 + Web 管理面板
 
 <p align="center">
-  <img src="docs/screenshot-dashboard.png" width="880" alt="控制台预览">
+  <img src="docs/screenshot-dashboard.png" width="100%" alt="控制台预览">
 </p>
 
 ![License](https://img.shields.io/badge/License-MIT-blue) ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white) ![Docker%20Pulls](https://img.shields.io/docker/pulls/hzww11/ctyun-auto-sign) ![Platform](https://img.shields.io/badge/Platform-amd64%20%7C%20arm64-lightgrey)
@@ -34,27 +34,19 @@ AIGC:
 
 ## 界面预览
 
-设置页（账号 / 自动化两个标签，所有配置可视化填写）：
+| 设置 · 账号 | 设置 · 自动化 |
+|:---:|:---:|
+| <img src="docs/screenshot-settings.png" width="100%" alt="设置-账号"> | <img src="docs/screenshot-automation.png" width="100%" alt="设置-自动化"> |
 
-<p align="center">
-  <img src="docs/screenshot-settings.png" width="49%" alt="设置-账号">
-  <img src="docs/screenshot-automation.png" width="49%" alt="设置-自动化">
-</p>
+| 积分兑换 | 运行日志 |
+|:---:|:---:|
+| <img src="docs/screenshot-redeem.png" width="100%" alt="积分兑换"> | <img src="docs/screenshot-logs.png" width="100%" alt="运行日志"> |
 
-积分兑换与运行日志：
+| 移动端（390px 实拍） |
+|:---:|
+| <img src="docs/screenshot-mobile.png" width="300" alt="移动端"> |
 
-<p align="center">
-  <img src="docs/screenshot-redeem.png" width="49%" alt="积分兑换">
-  <img src="docs/screenshot-logs.png" width="49%" alt="运行日志">
-</p>
-
-移动端适配（390px 宽度实拍）：
-
-<p align="center">
-  <img src="docs/screenshot-mobile.png" width="300" alt="移动端">
-</p>
-
-> 截图中的账号、密码、设备码等均为演示占位值。
+> 界面支持浅色 / 深色多套主题、自定义壁纸与动态光斑；截图中的账号、密码等均为演示占位值。
 
 ## 环境要求
 
