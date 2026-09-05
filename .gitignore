@@ -1,0 +1,38 @@
+# ===== 凭证与个人数据（最高优先级，严禁提交） =====
+data/
+*.json
+!package.json
+ctyun_cookies_*
+*.png
+*.jpg
+# 修复：放行 README 界面预览截图（已人工脱敏核验），其余 png/jpg 仍一律忽略
+!docs/*.png
+!docs/*.jpg
+*.log
+*.pid
+
+# ===== 临时/调试文件 =====
+_*
+*.tar
+*.zip
+*.err
+.temp/
+.codebuddy/
+ctyun_exe/
+_openssh_new/
+
+# ===== 个人部署脚本（含服务器信息，不入库） =====
+deploy_server.ps1
+CLAUDE.md
+
+# ===== Python 缓存 =====
+__pycache__/
+*.pyc
+
+# ===== 环境变量 =====
+.env
+
+# ===== 运行产物 =====
+chrome_profile_*/
+app/.devicecode_*
+app/ctyun_authData_*

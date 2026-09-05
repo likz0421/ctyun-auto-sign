@@ -1,0 +1,21 @@
+# 构建镜像时排除一切非必需文件，防止凭证/数据/临时文件意外进入镜像层
+data/
+publish/
+.git/
+.gitignore
+.temp/
+.codebuddy/
+ctyun_exe/
+_openssh_new/
+_*
+*.md
+*.log
+*.tar
+*.zip
+*.json
+*.png
+*.jpg
+deploy_server.ps1
+__pycache__/
+*.pyc
+.env

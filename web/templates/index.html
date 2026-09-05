@@ -1,0 +1,634 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>cTyun 控制台</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=20260905d">
+</head>
+<body>
+<!-- 壁纸承载层：独立固定定位合成层（配合 .wallpaper-layer 样式），
+     替代原先 body background-attachment: fixed 的实现，修复滚动时壁纸跳动 -->
+<div class="wallpaper-layer" aria-hidden="true"></div>
+
+<main class="main-content">
+
+  <!-- ===== 控制台 ===== -->
+  <section class="page active" id="page-dashboard">
+    <!-- 修复：head-status 从 page-head 中移出，独立成标题下方整行状态条（用户要求移到控制台标题下方并优化排版） -->
+    <header class="page-head">
+      <div>
+        <h1 class="page-title">控制台</h1>
+        <p class="page-subtitle">实时掌握天翼云自动签到状态</p>
+      </div>
+    </header>
+    <!-- 服务状态条：标题下方整行展示，状态色边框/光晕随服务状态变化 -->
+    <div class="head-status head-status-bar" id="headStatusBar">
+      <div class="status-dot-wrap online" id="statusDotWrap"><span class="status-dot-core"></span></div>
+      <div class="head-status-text">
+        <div class="hero-title" id="heroTitle">初始化…</div>
+        <div class="hero-meta" id="heroMeta">加载中</div>
+      </div>
+    </div>
+
+    <!-- 账号概览横条 -->
+    <div class="overview-bar glass">
+      <div class="ov-item"><div class="ov-label">账号</div><div class="ov-value" id="statAccount">--</div><div class="ov-sub" id="statAccountMeta"></div></div>
+      <div class="ov-sep"></div>
+      <div class="ov-item"><div class="ov-label">运行时长</div><div class="ov-value" id="statUptime">--</div></div>
+      <div class="ov-sep"></div>
+      <div class="ov-item ov-points"><div class="ov-label">兑换积分</div><div class="ov-value" id="statPoints">--</div><div class="ov-sub" id="statPointsMeta"></div></div>
+    </div>
+
+    <!-- 云电脑挂机（核心状态卡，含进度与快捷操作） -->
+    <div class="stat-card glass hang" id="hangCard">
+      <div class="card-head">
+        <div class="stat-icon"><i class="mdi mdi-cloud-laptop"></i></div>
+        <div class="head-text">
+          <div class="stat-label">云电脑挂机</div>
+          <div class="stat-value" id="statHang">--</div>
+        </div>
+        <div class="head-actions">
+          <button class="btn btn-sm btn-success" id="btnPcHang" onclick="executeTask('pc_hang')"><i class="mdi mdi-cloud-laptop"></i><span>立即挂机</span></button>
+        </div>
+      </div>
+      <div class="hang-progress"><div class="hang-progress-info"><span id="hangProgressText">加载中…</span><span id="hangProgressPct">--</span></div><div class="hang-progress-bar"><div class="hang-progress-fill" id="hangProgressBar"></div></div></div>
+      <div class="stat-sub" id="statHangMeta"></div>
+    </div>
+
+    <!-- 状态磁贴（两列网格） -->
+    <div class="stats-grid">
+      <div class="stat-card glass mini"><div class="stat-icon"><i class="mdi mdi-robot"></i></div><div class="stat-label">AI 对话</div><div class="stat-value" id="statAi">--</div><div class="stat-sub" id="statAiMeta"></div></div>
+      <div class="stat-card glass mini"><div class="stat-icon"><i class="mdi mdi-heart-pulse"></i></div><div class="stat-label">保活状态</div><div class="stat-value" id="statKeepAlive">--</div><div class="stat-sub" id="statKeepAliveMeta"></div></div>
+      <div class="stat-card glass mini"><div class="stat-icon"><i class="mdi mdi-clock-outline"></i></div><div class="stat-label">下次 AI 对话</div><div class="stat-value" id="statNextAi">—</div></div>
+      <div class="stat-card glass mini"><div class="stat-icon"><i class="mdi mdi-clock-play"></i></div><div class="stat-label">下次挂机</div><div class="stat-value" id="statNextHang">—</div></div>
+    </div>
+
+    <!-- 积分趋势卡 -->
+    <div class="points-card glass">
+      <div class="points-card-head">
+        <h3><i class="mdi mdi-chart-line"></i> 积分趋势</h3>
+        <div class="points-head-right">
+          <span class="points-trend-refresh" id="statPointsRefresh">每 8 小时自动刷新</span>
+          <button class="btn btn-xs" id="btnPointsRefresh" title="手动刷新积分数据"><i class="mdi mdi-refresh"></i></button>
+        </div>
+      </div>
+      <div class="trend-summary" id="trendSummary"></div>
+      <div class="trend-range" id="trendRange">
+        <button class="trend-range-btn active" data-range="all">全部</button>
+        <button class="trend-range-btn" data-range="7d">近7天</button>
+        <button class="trend-range-btn" data-range="30d">近30天</button>
+        <button class="trend-range-btn" data-range="90d">近90天</button>
+      </div>
+      <div id="pointsTrend" class="points-trend"></div>
+      <div class="trend-detail">
+        <div class="trend-detail-title"><i class="mdi mdi-format-list-bulleted"></i> 最近积分变动</div>
+        <div id="pointsDetail" class="trend-list"></div>
+      </div>
+    </div>
+
+    <!-- 其他快捷操作 -->
+    <div class="quick-actions glass">
+      <button class="qa-btn qa-primary" onclick="executeTask('ai_chat')"><i class="mdi mdi-message-outline"></i><span>AI 对话</span></button>
+      <button class="qa-btn qa-warning" onclick="executeTask('redeem')"><i class="mdi mdi-gift"></i><span>兑换</span></button>
+      <button class="qa-btn qa-ghost" onclick="navigateTo('logs');setLogType('keepalive_log',document.querySelector('#logTypeButtons .cron-preset-btn[data-logtype=\"keepalive_log\"]'))"><i class="mdi mdi-console-log"></i><span>日志</span></button>
+      <button class="qa-btn qa-danger" id="btnLogout2" onclick="executeTask('logout')"><i class="mdi mdi-logout"></i><span>退出</span></button>
+    </div>
+
+    <h2 class="section-title">服务详情</h2>
+    <!-- 合并优化：技术性条目（容器/CrYun/Web面板）合并为一条"运行环境"，
+         调度状态与登录信息保留；减少零散 chip、消除大量"运行中"重复文案 -->
+    <div class="chips-grid">
+      <div class="chip"><span class="chip-dot"></span><span class="chip-key">运行环境</span><span class="chip-val" id="statusEnv">--</span></div>
+      <div class="chip"><span class="chip-dot"></span><span class="chip-key">定时调度</span><span class="chip-val" id="statusCron">--</span></div>
+      <div class="chip"><span class="chip-dot"></span><span class="chip-key">上次登录</span><span class="chip-val" id="statusLastLogin">--</span></div>
+      <div class="chip"><span class="chip-dot"></span><span class="chip-key">登录凭证</span><span class="chip-val" id="statusAuth">--</span></div>
+    </div>
+
+  </section>
+
+  <!-- ===== 设置（聚合 账号 / 自动化） ===== -->
+  <section class="page" id="page-settings">
+    <header class="page-head">
+      <h1 class="page-title">设置</h1>
+      <p class="page-subtitle">管理账号与自动化任务</p>
+    </header>
+
+    <!-- 外观与主题（全局：预设主题 / 自定义强调色 / 3D / 壁纸 / 动态光斑） -->
+    <div class="card glass settings-card" id="cardAppearance">
+      <div class="card-header card-collapsible" onclick="toggleCardBody('cardAppearance')">
+        <h3><i class="mdi mdi-palette-swatch"></i> 外观与主题</h3>
+        <span class="card-fold-arrow"><i class="mdi mdi-chevron-down"></i></span>
+        <span style="flex:1"></span>
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();resetAppearance()"><i class="mdi mdi-restore"></i><span>恢复默认</span></button>
+      </div>
+      <div class="card-body">
+        <div class="form-group">
+          <label>主题预设</label>
+          <div class="theme-presets" id="themePresets">
+            <div class="theme-preset" data-theme="light"><div class="swatch"><span style="background:#eef1f7"></span><span style="background:#2f7bff"></span></div><div class="name">浅蓝（默认）</div></div>
+            <div class="theme-preset" data-theme="light-warm"><div class="swatch"><span style="background:#f6f1ea"></span><span style="background:#e0833a"></span></div><div class="name">浅暖</div></div>
+            <div class="theme-preset" data-theme="dark"><div class="swatch"><span style="background:#0c0f17"></span><span style="background:#5b9bff"></span></div><div class="name">暗夜</div></div>
+            <div class="theme-preset" data-theme="dark-purple"><div class="swatch"><span style="background:#100c1a"></span><span style="background:#b083ff"></span></div><div class="name">暗紫</div></div>
+            <div class="theme-preset" data-theme="dark-green"><div class="swatch"><span style="background:#07140f"></span><span style="background:#34d399"></span></div><div class="name">暗绿</div></div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>自定义强调色 <span class="label-hint">覆盖主题主色</span></label>
+          <div class="accent-row">
+            <input type="color" id="accentColor" value="#2f7bff" oninput="onAccentInput(this.value)">
+            <span class="label-hint" id="accentHex">#2f7bff</span>
+            <button class="btn btn-ghost btn-sm" onclick="clearAccent()">清除</button>
+          </div>
+          <div class="accent-presets" id="accentPresets">
+            <span class="accent-dot" data-c="#2f7bff" style="background:#2f7bff"></span>
+            <span class="accent-dot" data-c="#e0833a" style="background:#e0833a"></span>
+            <span class="accent-dot" data-c="#b083ff" style="background:#b083ff"></span>
+            <span class="accent-dot" data-c="#34d399" style="background:#34d399"></span>
+            <span class="accent-dot" data-c="#f43f5e" style="background:#f43f5e"></span>
+            <span class="accent-dot" data-c="#0ea5e9" style="background:#0ea5e9"></span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>3D 模式 <span class="label-hint">卡片悬浮立体 + 鼠标跟随</span></label>
+          <div class="toggle-row">
+            <div><div class="toggle-row-title">启用 3D 模式</div><div class="toggle-row-desc">卡片悬浮抬升，跟随鼠标微旋转</div></div>
+            <label class="switch"><input type="checkbox" id="mode3d"><span class="switch-slider"></span></label>
+          </div>
+        </div>
+
+        <details class="appear-group" open>
+          <summary>自定义壁纸</summary>
+        <div class="form-group">
+          <div class="wallpaper-opts">
+            <div class="wallpaper-tabs">
+              <button type="button" class="cron-preset-btn active" data-wp-tab="none">无</button>
+              <button type="button" class="cron-preset-btn" data-wp-tab="upload">上传</button>
+              <button type="button" class="cron-preset-btn" data-wp-tab="url">链接</button>
+              <button type="button" class="cron-preset-btn" data-wp-tab="gradient">渐变</button>
+              <button type="button" class="cron-preset-btn" data-wp-tab="subscribe">订阅源</button>
+            </div>
+            <div class="wallpaper-field" data-wp="none"><span class="label-hint">使用默认柔彩光斑背景</span></div>
+            <div class="wallpaper-field" data-wp="upload">
+              <input type="file" id="wallpaperFile" accept="image/*" onchange="onWallpaperUpload(this)">
+              <span class="label-hint">本地图片（存浏览器，不上传服务器）</span>
+            </div>
+            <div class="wallpaper-field" data-wp="url">
+              <input type="text" class="form-control" id="wallpaperUrl" placeholder="https://... 图片直链" oninput="onWallpaperUrl(this.value)">
+            </div>
+            <div class="wallpaper-field" data-wp="gradient">
+              <div class="wallpaper-gradients" id="wallpaperGradients"></div>
+            </div>
+            <div class="wallpaper-field" data-wp="subscribe">
+              <div class="wp-sub-head">
+                <span class="label-hint">勾选订阅高质量壁纸源，系统自动随机切换；也可填自定义接口。</span>
+                <button type="button" class="btn btn-sm btn-soft" id="wpRefreshBtn" onclick="refreshWallpaper()">立即换一张</button>
+              </div>
+              <div class="wp-sources" id="wpSources"></div>
+            </div>
+            <div class="form-row" style="margin-top:6px">
+              <div class="form-group">
+                <label>融合方式 <span class="label-hint">壁纸与柔彩光斑叠加，过渡更自然</span></label>
+                <select class="form-control form-control-sm" id="wallpaperBlend" onchange="setWpFromSlider(this); applyWallpaper()">
+                  <option value="soft">柔和（推荐）</option>
+                  <option value="normal">标准</option>
+                  <option value="strong">加深</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>壁纸透明度</label>
+                <input type="range" id="wallpaperOpacity" min="0" max="70" value="0" class="form-range" oninput="setWpFromSlider(this); applyWallpaper()">
+                <span class="label-hint">越大壁纸越淡、越通透</span>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>蒙版强度 <span class="label-hint">深色遮罩增强文字可读性</span></label>
+                <input type="range" id="wallpaperMask" min="0" max="100" value="20" class="form-range" oninput="setWpFromSlider(this); applyWallpaper()">
+              </div>
+            </div>
+          </div>
+        </div>
+        </details>
+
+        <details class="appear-group" open>
+          <summary>动态光斑</summary>
+        <div class="form-group">
+          <div class="toggle-row">
+            <div><div class="toggle-row-title">启用动态光斑</div><div class="toggle-row-desc">背景光斑缓慢流动</div></div>
+            <label class="switch"><input type="checkbox" id="spotAnim"><span class="switch-slider"></span></label>
+          </div>
+          <div class="form-row" style="margin-top:8px">
+            <div class="form-group">
+              <label>速度</label>
+              <select class="form-control form-control-sm" id="spotSpeed" onchange="applySpotlight()">
+                <option value="slow">慢</option><option value="normal">中</option><option value="fast">快</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>密度</label>
+              <select class="form-control form-control-sm" id="spotDensity" onchange="applySpotlight()">
+                <option value="low">低</option><option value="normal">中</option><option value="high">高</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        </details>
+      </div>
+    </div>
+
+    <!-- 机器人通知（任务失败 / 登录失效时推送到 webhook） -->
+    <div class="card glass settings-card" id="cardNotify">
+      <div class="card-header card-collapsible" onclick="toggleCardBody('cardNotify')">
+        <h3><i class="mdi mdi-bell-ring-outline"></i> 机器人通知</h3>
+        <span class="card-fold-arrow"><i class="mdi mdi-chevron-down"></i></span>
+        <span style="flex:1"></span>
+        <button class="btn btn-primary btn-sm" id="btnSaveNotify" onclick="event.stopPropagation();saveNotifySettings()"><i class="mdi mdi-content-save"></i><span>保存</span></button>
+      </div>
+      <div class="card-body">
+        <div id="notifyAlert"></div>
+        <div class="form-group">
+          <label>启用通知 <span class="label-hint">任务失败 / 登录失效时推送</span></label>
+          <div class="toggle-row">
+            <div><div class="toggle-row-title">启用机器人通知</div><div class="toggle-row-desc">挂机失败、登录失效等事件实时推送</div></div>
+            <label class="switch"><input type="checkbox" id="notifyEnabled"><span class="switch-slider"></span></label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>通知类型</label>
+            <select class="form-control" id="notifyType" onchange="onNotifyTypeChange()">
+              <option value="webhook">通用 Webhook</option>
+              <option value="wecom">企业微信</option>
+              <option value="feishu">飞书</option>
+              <option value="dingtalk">钉钉</option>
+              <option value="wxpusher">WxPusher（微信）</option>
+              <option value="browser">浏览器桌面通知</option>
+              <option value="email">邮件（SMTP）</option>
+            </select>
+          </div>
+          <div class="form-group form-group-full" id="notifyUrlWrap">
+            <label>Webhook 地址 / WxPusher 推送码 <span class="label-hint">企业微信/飞书/钉钉/自定义机器人 URL；WxPusher 填 SPT_ 极简推送码（直接发给自己）或 AT_ 标准 appToken</span></label>
+            <input type="text" class="form-control" id="notifyUrl" placeholder="https://qyapi.weixin.qq.com/... 或 SPT_xxxx / AT_xxxx">
+          </div>
+          <div class="form-group form-group-full" id="notifyUidsWrap" style="display:none">
+            <label>WxPusher 接收 UID <span class="label-hint">仅标准 appToken（AT_ 开头）需要；极简 SPT 推送码无需填写，直接发给自己</span></label>
+            <input type="text" class="form-control" id="notifyUids" placeholder="UID_xxxx,UID_yyyy">
+          </div>
+        </div>
+        <div class="form-group form-group-full" id="notifyTplWrap" style="display:none">
+          <label>自定义消息模板 <span class="label-hint">可用变量 {title} {message} {time} {event}</span></label>
+          <textarea class="form-control" id="notifyTemplate" rows="2" placeholder="【{title}】{message}（{time}）"></textarea>
+        </div>
+        <div class="form-row" id="notifyEmailWrap" style="display:none">
+          <div class="form-group"><label>SMTP 服务器</label><input type="text" class="form-control" id="notifySmtpHost" placeholder="smtp.qq.com"></div>
+          <div class="form-group"><label>SMTP 端口</label><input type="text" class="form-control" id="notifySmtpPort" placeholder="465"></div>
+          <div class="form-group"><label>发件账号</label><input type="text" class="form-control" id="notifySmtpUser" placeholder="you@qq.com"></div>
+          <div class="form-group form-group-full"><label>授权码</label><input type="password" class="form-control" id="notifySmtpPass" placeholder="邮箱授权码"></div>
+          <div class="form-group form-group-full"><label>收件人</label><input type="text" class="form-control" id="notifySmtpTo" placeholder="to@example.com"></div>
+        </div>
+        <div class="form-group">
+          <label>通知事件 <span class="label-hint">勾选后仅这些事件触发推送</span></label>
+          <div style="display:flex;gap:14px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-sec)"><input type="checkbox" id="notifyHangStart" checked> 开始挂机</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-sec)"><input type="checkbox" id="notifyHangFail" checked> 挂机失败</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-sec)"><input type="checkbox" id="notifyTaskDone" checked> 挂机完成</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-sec)"><input type="checkbox" id="notifyAiStart" checked> 开始AI对话</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-sec)"><input type="checkbox" id="notifyAiDone" checked> AI对话完成</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-sec)"><input type="checkbox" id="notifyAiFail" checked> AI对话失败</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-sec)"><input type="checkbox" id="notifyPointsUpdate" checked> 积分变化</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-sec)"><input type="checkbox" id="notifyRedeemOk" checked> 兑换成功</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-sec)"><input type="checkbox" id="notifyRedeemFail" checked> 兑换失败</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-sec)"><input type="checkbox" id="notifyLoginFail" checked> 登录失效</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-sec)"><input type="checkbox" id="notifyLoginOk"> 登录成功</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-sec)"><input type="checkbox" id="notifySysError"> 系统错误</label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>通知测试</label>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="testNotify()"><i class="mdi mdi-send-check"></i><span>发送测试消息</span></button>
+            <span style="font-size:12px;color:var(--text-muted)">推送一条示例消息，确认配置正确</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 子分段切换 -->
+    <div class="segmented" id="settingsSegment">
+      <button class="seg-btn active" data-sub="account"><i class="mdi mdi-account-circle"></i><span>账号</span></button>
+      <button class="seg-btn" data-sub="automation"><i class="mdi mdi-calendar-clock"></i><span>自动化</span></button>
+    </div>
+
+    <!-- 账号子页（账号 / 登录状态 / AI 预设 / 设备代码） -->
+    <div class="sub-page active" id="sub-account">
+      <div class="card glass">
+        <div class="card-header">
+          <h3><i class="mdi mdi-account-circle"></i> 账号信息</h3>
+          <span class="login-state-badge" id="loginStateBadge">未登录</span>
+        </div>
+        <div class="card-body">
+          <div id="settingsAlert"></div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>账号</label>
+              <input type="text" class="form-control" id="username" placeholder="请输入天翼云账号 / 手机号">
+            </div>
+            <div class="form-group">
+              <label>密码</label>
+              <input type="password" class="form-control" id="password" placeholder="请输入登录密码">
+            </div>
+          </div>
+          <div class="action-row">
+            <button class="btn btn-primary" id="btnSaveSettings">保存账号</button>
+            <button class="btn btn-ghost" id="btnTestLogin">测试登录</button>
+            <button class="btn btn-danger" id="btnClearSession">清除登录会话</button>
+          </div>
+        </div>
+      </div>
+      <div class="card glass">
+        <div class="card-header"><h3><i class="mdi mdi-information-outline"></i> 登录状态</h3></div>
+        <div class="card-body">
+          <div class="status-grid">
+            <div class="status-item"><div class="status-item-label">Cookie 状态</div><div class="status-item-value" id="cookieStatus">—</div></div>
+            <div class="status-item"><div class="status-item-label">认证状态</div><div class="status-item-value" id="authStatus">—</div></div>
+            <div class="status-item"><div class="status-item-label">最后登录</div><div class="status-item-value" id="lastLoginTime">—</div></div>
+            <div class="status-item"><div class="status-item-label">容器</div><div class="status-item-value" id="statusDeviceContainer">--</div></div>
+            <div class="status-item"><div class="status-item-label">CrYun</div><div class="status-item-value" id="statusDeviceCrYun">--</div></div>
+            <div class="status-item"><div class="status-item-label">Cookie</div><div class="status-item-value" id="statusDeviceCookie">--</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="card glass">
+        <div class="card-header"><h3><i class="mdi mdi-tune-variant"></i> AI 预设消息</h3></div>
+        <div class="card-body">
+          <div class="form-group">
+            <label>预设消息 <span class="label-hint">每行一条，随机抽取</span></label>
+            <textarea class="form-control" id="presetMessages" rows="6" placeholder="在吗&#10;你好&#10;签到"></textarea>
+          </div>
+          <div class="action-row">
+            <button class="btn btn-primary" id="btnSavePresets">保存预设</button>
+          </div>
+        </div>
+      </div>
+      <div class="card glass">
+        <div class="card-header"><h3><i class="mdi mdi-devices"></i> 设备代码</h3>
+          <button class="btn btn-primary btn-sm" id="btnSaveDevice" onclick="saveDeviceCode()"><i class="mdi mdi-content-save"></i><span>保存</span></button>
+        </div>
+        <div class="card-body">
+          <div id="deviceAlert"></div>
+          <div class="form-group">
+            <label>当前设备代码</label>
+            <div class="info-display"><span class="value" id="deviceCodeDisplay">加载中…</span><button class="btn btn-ghost btn-sm" onclick="copyText('deviceCodeDisplay')"><i class="mdi mdi-content-copy"></i></button></div>
+          </div>
+          <div class="form-group">
+            <label>账号侧设备代码 <span class="label-hint">随机生成后保存生效</span></label>
+            <div class="inline-group">
+              <input type="text" class="form-control" id="accountDeviceCode" placeholder="web_ 开头，可随机生成">
+              <button class="btn btn-ghost btn-sm" id="btnGenDeviceCode"><i class="mdi mdi-dice-5"></i><span>随机生成</span></button>
+              <button class="btn btn-primary btn-sm" id="btnSaveDeviceCode"><i class="mdi mdi-content-save"></i><span>保存生效</span></button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>手动设置设备代码</label>
+            <div class="inline-group">
+              <input type="text" class="form-control" id="deviceCodeInput" placeholder="粘贴设备代码…">
+              <button class="btn btn-ghost btn-sm" onclick="document.getElementById('deviceCodeInput').value=document.getElementById('deviceCodeDisplay').textContent.trim();showToast('已填入','info')"><i class="mdi mdi-auto-fix"></i><span>自动填入</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 自动化子页（AI对话 / 挂机 / 保活 / 积分刷新 / 静默监控） -->
+    <div class="sub-page" id="sub-automation">
+      <div class="card glass">
+        <div class="card-header"><h3><i class="mdi mdi-calendar-clock"></i> 任务调度</h3>
+          <button class="btn btn-primary btn-sm" id="btnSaveCron" onclick="saveCronSettings()"><i class="mdi mdi-content-save"></i><span>保存</span></button>
+        </div>
+        <div class="card-body">
+          <div id="cronAlert"></div>
+          <div class="form-row">
+            <div class="form-group form-group-full">
+              <label>AI 对话 <span class="label-hint">开启后按所选时间自动执行</span></label>
+              <div class="toggle-row">
+                <div><div class="toggle-row-title">启用 AI 对话定时</div><div class="toggle-row-desc">按下方时间每天自动执行 AI 对话</div></div>
+                <label class="switch"><input type="checkbox" id="aiChatEnabled"><span class="switch-slider"></span></label>
+              </div>
+              <div class="time-chips" id="aiChatTimes"></div>
+              <input type="text" class="form-control form-control-sm" id="aiChatCustom" placeholder="自定义时间，如 07:30，回车添加" style="margin-top:8px;max-width:240px" onkeydown="if(event.key==='Enter'){addCustomTime('aiChatTimes',this.value);this.value='';}">
+            </div>
+            <div class="form-group form-group-full">
+              <label>云电脑挂机 <span class="label-hint">开启后按所选时间自动挂机</span></label>
+              <div class="toggle-row">
+                <div><div class="toggle-row-title">启用云电脑挂机定时</div><div class="toggle-row-desc">按下方时间每天自动执行云电脑挂机</div></div>
+                <label class="switch"><input type="checkbox" id="pcHangEnabled"><span class="switch-slider"></span></label>
+              </div>
+              <div class="time-chips" id="pcHangTimes"></div>
+              <input type="text" class="form-control form-control-sm" id="pcHangCustom" placeholder="自定义时间，如 07:30，回车添加" style="margin-top:8px;max-width:240px" onkeydown="if(event.key==='Enter'){addCustomTime('pcHangTimes',this.value);this.value='';}">
+            </div>
+            <div class="form-group">
+              <label>挂机时长（分钟）<span class="label-hint">每次挂机持续时长，范围 1-720 分钟</span></label>
+              <div class="cron-editor"><input type="number" class="form-control" id="hangMinutes" min="1" max="720"></div>
+              <div class="cron-presets cron-presets-inline">
+                <button class="cron-preset-btn" data-val="30" onclick="highlightHangMinutes(this)">30 分</button>
+                <button class="cron-preset-btn" data-val="60" onclick="highlightHangMinutes(this)">60 分</button>
+                <button class="cron-preset-btn" data-val="80" onclick="highlightHangMinutes(this)">80 分</button>
+                <button class="cron-preset-btn" data-val="120" onclick="highlightHangMinutes(this)">120 分</button>
+                <button class="cron-preset-btn" data-val="240" onclick="highlightHangMinutes(this)">4 小时</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>积分刷新间隔（小时）<span class="label-hint">后台每 N 小时自动抓取一次积分，并实时记录趋势</span></label>
+              <div class="cron-editor"><input type="number" class="form-control" id="pointsRefreshHours" min="1" max="168"></div>
+              <div class="cron-presets cron-presets-inline">
+                <button class="cron-preset-btn" data-val="4" onclick="highlightPointsRefresh(this)">4 小时</button>
+                <button class="cron-preset-btn" data-val="8" onclick="highlightPointsRefresh(this)">8 小时</button>
+                <button class="cron-preset-btn" data-val="12" onclick="highlightPointsRefresh(this)">12 小时</button>
+                <button class="cron-preset-btn" data-val="24" onclick="highlightPointsRefresh(this)">24 小时</button>
+              </div>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div class="toggle-row"><div><div class="toggle-row-title">启用保活心跳</div><div class="toggle-row-desc">周期性重连维持会话：连接 5 分钟 → 断开静默 N 秒 → 重连</div></div><label class="switch"><input type="checkbox" id="keepaliveEnabled"><span class="switch-slider"></span></label></div>
+          <div class="form-group keepalive-group">
+            <label>保活断开间隔（秒）<span class="label-hint">断开静默时长，期间不向服务器发任何请求（默认 900 = 15 分钟，更不易触发风控）</span></label>
+            <div class="cron-editor"><input type="number" class="form-control" id="keepaliveSeconds" min="10" max="21600"></div>
+            <div class="cron-presets">
+              <button class="cron-preset-btn" data-val="30" onclick="highlightKeepalive(this)">30s</button>
+              <button class="cron-preset-btn" data-val="60" onclick="highlightKeepalive(this)">60s</button>
+              <button class="cron-preset-btn" data-val="120" onclick="highlightKeepalive(this)">2m</button>
+              <button class="cron-preset-btn" data-val="300" onclick="highlightKeepalive(this)">5m</button>
+              <button class="cron-preset-btn" data-val="600" onclick="highlightKeepalive(this)">10m</button>
+              <button class="cron-preset-btn" data-val="900" onclick="highlightKeepalive(this)">15m</button>
+              <button class="cron-preset-btn" data-val="1200" onclick="highlightKeepalive(this)">20m</button>
+              <button class="cron-preset-btn" data-val="1800" onclick="highlightKeepalive(this)">30m</button>
+              <button class="cron-preset-btn" data-val="3600" onclick="highlightKeepalive(this)">1h</button>
+              <button class="cron-preset-btn" data-val="7200" onclick="highlightKeepalive(this)">2h</button>
+              <button class="cron-preset-btn" data-val="21600" onclick="highlightKeepalive(this)">6h</button>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div class="toggle-row"><div><div class="toggle-row-title">启用静默模式</div><div class="toggle-row-desc">执行任务时静默输出</div></div><label class="switch"><input type="checkbox" id="silentMode"><span class="switch-slider"></span></label></div>
+          <div class="toggle-row"><div><div class="toggle-row-title">启用浏览器监控</div><div class="toggle-row-desc">监控浏览器活动状态</div></div><label class="switch"><input type="checkbox" id="browserWatch"><span class="switch-slider"></span></label></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 兑换页 ===== -->
+  <section class="page" id="page-redeem">
+    <header class="page-head">
+      <h1 class="page-title">积分兑换</h1>
+      <p class="page-subtitle">使用积分兑换云电脑扩容等物品</p>
+    </header>
+    <div id="redeemAlert"></div>
+    <div class="redeem-grid">
+      <div class="card glass">
+        <div class="card-header"><h3><i class="mdi mdi-gift-outline"></i> 可兑换物品</h3>
+          <div class="header-actions">
+            <span class="points-badge" id="rewardPoints"><i class="mdi mdi-star-circle"></i> 剩余积分 <b id="rewardPointsVal">--</b></span>
+            <button class="btn btn-naked btn-sm" onclick="fetchRewards()" title="刷新商品与积分"><i class="mdi mdi-refresh"></i></button>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="label-hint" style="margin:0 0 10px;">点击卡片选择要兑换的物品，选中后高亮并显示「已选」角标</p>
+          <div class="reward-list" id="rewardList"></div>
+        </div>
+      </div>
+      <div class="redeem-side">
+        <div class="card glass">
+          <div class="card-header"><h3><i class="mdi mdi-tune-variant"></i> 兑换配置</h3>
+            <div class="header-actions">
+              <button class="btn btn-primary btn-sm" id="btnSaveRedeem" onclick="saveRedeemSettings()"><i class="mdi mdi-content-save"></i><span>保存</span></button>
+              <button class="btn btn-danger btn-sm" id="btnDisableRedeem" onclick="disableRedeem()"><i class="mdi mdi-stop"></i><span>禁用</span></button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="form-group"><label>云电脑</label><select class="form-select" id="redeemDesktopId"></select></div>
+            <div class="toggle-row"><div><div class="toggle-row-title">自动兑换</div><div class="toggle-row-desc">按计划自动执行</div></div><label class="switch"><input type="checkbox" id="redeemEnabled"><span class="switch-slider"></span></label></div>
+          </div>
+        </div>
+        <div class="card glass">
+          <div class="card-header"><h3><i class="mdi mdi-calendar"></i> 兑换计划</h3></div>
+          <div class="card-body">
+            <div class="form-group"><label>周期类型</label><select class="form-select" id="redeemScheduleType" onchange="updateRedeemSchedule()"><option value="daily">每天</option><option value="interval">每 N 天</option><option value="weekly">每周</option><option value="monthly">每月</option></select></div>
+            <div class="form-group" id="intervalDaysGroup" style="display:none;"><label>间隔天数</label><input type="number" class="form-control" id="intervalDays" min="1" max="30" value="1"></div>
+            <div class="form-group" id="monthlyDaysGroup" style="display:none;"><label>每月日期（逗号分隔）</label><input type="text" class="form-control" id="monthlyDays" placeholder="1,15"></div>
+            <div class="form-group"><label>兑换次数（0=按积分尽量兑）</label><input type="number" class="form-control" id="redeemMaxTimes" min="0" max="999" value="0"><div id="redeemTimesHint" class="form-hint"></div></div>
+            <button class="btn btn-warning btn-block" id="btnManualRedeem" onclick="manualRedeem()"><i class="mdi mdi-gift"></i><span>手动触发兑换</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 日志页 ===== -->
+  <section class="page" id="page-logs">
+    <header class="page-head">
+      <h1 class="page-title">运行日志</h1>
+      <p class="page-subtitle-soft">查看系统执行记录</p>
+    </header>
+    <div class="card glass">
+      <div class="card-header"><h3><i class="mdi mdi-text-box-outline"></i> 日志查看</h3>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="loadLogs()"><i class="mdi mdi-refresh"></i><span>刷新</span></button>
+          <button class="btn btn-ghost btn-sm" onclick="clearLogs()"><i class="mdi mdi-delete-sweep"></i><span>清空</span></button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="log-tabs" id="logTypeButtons">
+          <button class="cron-preset-btn active" data-logtype="all" onclick="setLogType('all',this)">全部</button>
+          <button class="cron-preset-btn" data-logtype="keepalive_log" onclick="setLogType('keepalive_log',this)">保活</button>
+          <button class="cron-preset-btn" data-logtype="ai_chat" onclick="setLogType('ai_chat',this)">AI 对话</button>
+          <button class="cron-preset-btn" data-logtype="pc_hang" onclick="setLogType('pc_hang',this)">云电脑</button>
+          <button class="cron-preset-btn" data-logtype="logout" onclick="setLogType('logout',this)">退出</button>
+          <button class="cron-preset-btn" data-logtype="system" onclick="setLogType('system',this)">系统</button>
+        </div>
+        <div class="log-viewer" id="logViewer">加载中…</div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- 右上角：主题切换 + 刷新 -->
+<div class="topright">
+  <button class="icon-btn" id="btnRefresh" title="刷新状态"><i class="mdi mdi-refresh"></i></button>
+  <button class="theme-toggle" id="themeToggle" title="外观与主题设置" onclick="openThemePanel()" aria-label="外观与主题设置"><i class="mdi mdi-palette-cog"></i></button>
+</div>
+
+<!-- 底部导航 (居中玻璃 dock) -->
+<nav class="bottomnav">
+  <div class="dock" id="topnav">
+    <button class="dock-item active" data-page="dashboard"><i class="mdi mdi-view-dashboard"></i><span>控制台</span></button>
+    <button class="dock-item" data-page="settings"><i class="mdi mdi-cog"></i><span>设置</span></button>
+    <button class="dock-item" data-page="redeem"><i class="mdi mdi-gift-outline"></i><span>兑换</span></button>
+    <button class="dock-item" data-page="logs"><i class="mdi mdi-console-log"></i><span>日志</span></button>
+  </div>
+</nav>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<div class="modal-overlay" id="redeemProgressModal" style="display:none;">
+  <div class="modal glass-strong">
+    <div class="modal-header"><h3><i class="mdi mdi-swap-horizontal-circle-outline"></i> 兑换进度</h3>
+      <button class="modal-close" onclick="closeRedeemProgress()"><i class="mdi mdi-close"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="redeem-progress-status running" id="redeemProgressStatus">正在执行兑换，请稍候…</div>
+      <div class="log-viewer" id="redeemProgressLog">正在连接后台…</div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost btn-sm" onclick="closeRedeemProgress()">关闭</button></div>
+  </div>
+</div>
+
+<!-- 主题快捷弹窗（点击右上角调色盘打开，居中模态风格） -->
+<div class="theme-modal" id="themePanel" onclick="if(event.target===this)closeThemePanel()">
+  <div class="theme-modal-box glass-strong">
+    <div class="theme-modal-head">
+      <h3><i class="mdi mdi-palette-swatch"></i> 外观与主题</h3>
+      <button class="modal-close" onclick="closeThemePanel()"><i class="mdi mdi-close"></i></button>
+    </div>
+    <div class="theme-modal-body">
+      <div class="theme-section">
+        <div class="theme-section-title">主题预设</div>
+        <div class="theme-presets" id="themePresetsMini">
+          <div class="theme-preset" data-theme="light"><div class="swatch"><span style="background:#eef1f7"></span><span style="background:#2f7bff"></span></div><div class="name">浅蓝</div></div>
+          <div class="theme-preset" data-theme="light-warm"><div class="swatch"><span style="background:#f6f1ea"></span><span style="background:#e0833a"></span></div><div class="name">浅暖</div></div>
+          <div class="theme-preset" data-theme="dark"><div class="swatch"><span style="background:#0c0f17"></span><span style="background:#5b9bff"></span></div><div class="name">暗夜</div></div>
+          <div class="theme-preset" data-theme="dark-purple"><div class="swatch"><span style="background:#100c1a"></span><span style="background:#b083ff"></span></div><div class="name">暗紫</div></div>
+          <div class="theme-preset" data-theme="dark-green"><div class="swatch"><span style="background:#07140f"></span><span style="background:#34d399"></span></div><div class="name">暗绿</div></div>
+        </div>
+      </div>
+      <div class="theme-section">
+        <div class="theme-section-title">快捷开关</div>
+        <div class="toggle-row">
+          <div><div class="toggle-row-title">3D 模式</div><div class="toggle-row-desc">卡片立体悬浮</div></div>
+          <label class="switch"><input type="checkbox" id="mode3dMini" onchange="document.getElementById('mode3d').checked=this.checked;applyMode3d()"><span class="switch-slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div><div class="toggle-row-title">动态光斑</div><div class="toggle-row-desc">背景光斑流动</div></div>
+          <label class="switch"><input type="checkbox" id="spotAnimMini" onchange="document.getElementById('spotAnim').checked=this.checked;applySpotlight()"><span class="switch-slider"></span></label>
+        </div>
+      </div>
+      <div class="theme-section">
+        <button class="btn btn-ghost btn-sm" style="width:100%" onclick="resetAppearance()"><i class="mdi mdi-restore"></i><span>恢复默认外观</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 通知横幅 -->
+<div class="notify-banner" id="notifyBanner">
+  <span class="nb-icon" id="notifyBannerIcon"></span>
+  <span class="nb-text" id="notifyBannerText"></span>
+  <span class="nb-close" onclick="hideNotifyBanner()">×</span>
+</div>
+
+<script src="/static/js/icons.js?v=20260905d"></script>
+  <script src="/static/js/app.js?v=20260905d"></script>
+</body>
+</html>

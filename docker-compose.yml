@@ -1,0 +1,32 @@
+version: '3.8'
+
+# 天翼云电脑自动化 + Web 管理面板
+# 数据（Cookie/配置/日志）全部落在 ./data，升级只需保留该目录
+
+services:
+  ctyun:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    image: ctyun-auto-sign:latest
+    container_name: ctyun_sign_web
+    restart: unless-stopped
+    environment:
+      - WEB_PORT=8080
+      - TZ=Asia/Shanghai
+      - RUNNING_IN_DOCKER=true
+      # 可选：也可不填，启动后在 Web 面板里配置（存于 data/web_settings.json）
+      - APP_USER=
+      - APP_PASSWORD=
+    ports:
+      - "8090:8080"
+    volumes:
+      - ./data:/app/data
+      # 代码目录挂载：日常改动只需改宿主机对应目录 + docker compose up -d，免重建镜像
+      - ./app:/app/app
+      - ./web_server:/app/web_server
+      - ./web:/app/web
+    # 如在海外/网络受限环境访问天翼云 CDN 卡顿，可按需添加 hosts 映射，例如：
+    # extra_hosts:
+    #   - "deskcdn.ctyun.cn:<CDN_IP>"
+    #   - "deskcdn.ctyun.cn.ctadns.cn:<CDN_IP>"
