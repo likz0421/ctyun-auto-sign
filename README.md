@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '66ec4e9b-266c-471c-9519-949afb46d4a3'
-  PropagateID: '66ec4e9b-266c-471c-9519-949afb46d4a3'
-  ReservedCode1: '0b5bec8e-8cb0-40bb-937c-c8b43a8fb4fb'
-  ReservedCode2: '0b5bec8e-8cb0-40bb-937c-c8b43a8fb4fb'
+  ProduceID: '824dd083-f89f-4a78-af8b-c9399eaf8001'
+  PropagateID: '824dd083-f89f-4a78-af8b-c9399eaf8001'
+  ReservedCode1: '3c57bfa8-783c-4b44-a061-e2e30494f9d3'
+  ReservedCode2: '3c57bfa8-783c-4b44-a061-e2e30494f9d3'
 ---
 
 # 天翼云电脑保活自动化 + Web 管理面板
@@ -15,7 +15,7 @@ AIGC:
   <img src="docs/screenshot-dashboard.png" width="880" alt="控制台预览">
 </p>
 
-![License](https://img.shields.io/badge/License-MIT-blue) ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white) ![Docker%20Pulls](https://img.shields.io/docker/pulls/hzww11/ctyun-auto-sign) ![Platform](https://img.shields.io/badge/Platform-linux%20%2F%20amd64-lightgrey)
+![License](https://img.shields.io/badge/License-MIT-blue) ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white) ![Docker%20Pulls](https://img.shields.io/docker/pulls/hzww11/ctyun-auto-sign) ![Platform](https://img.shields.io/badge/Platform-amd64%20%7C%20arm64-lightgrey)
 
 在 Docker 容器中保活天翼云电脑使其长期在线，并自动完成每日积分任务（AI 对话 +100、挂机 +100、保活积分），支持积分自动兑换。内置 Web 管理面板，浏览器里即可完成全部配置，无需改任何代码。
 
@@ -60,12 +60,14 @@ AIGC:
 
 | 项目 | 要求 |
 |---|---|
-| 架构 | x86_64（amd64）Linux 环境：云服务器 / NAS / 软路由 / 本地电脑均可 |
+| 架构 | **linux/amd64 与 linux/arm64 双架构镜像**：x86 云服务器 / NAS / 软路由，以及树莓派 4/5 等 ARM64 设备均可 |
 | 配置 | 最低 1 核 CPU / 1GB 内存 / 3GB 磁盘（镜像约 2GB，含 Chromium） |
 | 软件 | Docker 20.10+ 与 Docker Compose（v2 执行 `docker compose`，v1 执行 `docker-compose`） |
 | 网络 | 能访问天翼云电脑服务与 Docker Hub |
 
 > Windows / macOS 也可通过 Docker Desktop 运行，长期挂机建议使用 Linux 服务器。
+>
+> 镜像为多架构 manifest（amd64 + arm64），`docker pull` 时会根据主机架构自动匹配，无需额外参数。
 
 ## 快速开始（详细部署指南）
 
