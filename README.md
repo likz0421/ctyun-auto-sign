@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'eb7e09f1-738d-4317-ad8e-8ecc30ea2711'
-  PropagateID: 'eb7e09f1-738d-4317-ad8e-8ecc30ea2711'
-  ReservedCode1: '2ce96cd9-b8d2-4415-8d46-e3153c56aae3'
-  ReservedCode2: '2ce96cd9-b8d2-4415-8d46-e3153c56aae3'
+  ProduceID: '68439dba-750e-4e8e-b09e-16794da2639b'
+  PropagateID: '68439dba-750e-4e8e-b09e-16794da2639b'
+  ReservedCode1: 'c331b10a-d796-4d04-b685-6e84efeb1e27'
+  ReservedCode2: 'c331b10a-d796-4d04-b685-6e84efeb1e27'
 ---
 
 # 天翼云电脑保活自动化 + Web 管理面板
@@ -15,9 +15,11 @@ AIGC:
   <img src="docs/screenshot-dashboard.png" width="100%" alt="控制台预览">
 </p>
 
-![License](https://img.shields.io/badge/License-MIT-blue) ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white) ![Docker%20Pulls](https://img.shields.io/docker/pulls/hzww11/ctyun-auto-sign) ![Platform](https://img.shields.io/badge/Platform-amd64%20%7C%20arm64-lightgrey)
+![License](https://img.shields.io/badge/License-MIT-blue) ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white) ![Docker%20Pulls](https://img.shields.io/docker/pulls/hzww11/ctyun-auto-sign) ![Platform](https://img.shields.io/badge/Platform-amd64%20%7C%20arm64-lightgrey) ![Windows](https://img.shields.io/badge/Windows-%E6%A1%8C%E9%9D%A2%E7%89%88-0078D4?logo=windows&logoColor=white)
 
 在 Docker 容器中保活天翼云电脑使其长期在线，并自动完成每日积分任务（AI 对话 +100、挂机 +100、保活积分），支持积分自动兑换。内置 Web 管理面板，浏览器里即可完成全部配置，无需改任何代码。
+
+> **没有 Docker？** [Windows 桌面绿色版](desktop/README.md) 已发布：解压双击 `CtYun.exe` 即用，无需安装 Python/.NET/浏览器，功能与 Docker 版完全一致，前往 [Releases](https://github.com/likz0421/ctyun-auto-sign/releases) 下载。
 
 > 本仓库为**脱敏开源版**：不含任何账号、Cookie、服务器地址等个人信息，所有配置在首次启动后通过 Web 面板填写。
 
@@ -57,7 +59,7 @@ AIGC:
 | 软件 | Docker 20.10+ 与 Docker Compose（v2 执行 `docker compose`，v1 执行 `docker-compose`） |
 | 网络 | 能访问天翼云电脑服务与 Docker Hub |
 
-> Windows / macOS 也可通过 Docker Desktop 运行，长期挂机建议使用 Linux 服务器。
+> Windows / macOS 也可通过 Docker Desktop 运行，长期挂机建议使用 Linux 服务器；Windows 用户也可直接使用免 Docker 的[桌面绿色版](desktop/README.md)。
 >
 > 镜像为多架构 manifest（amd64 + arm64），`docker pull` 时会根据主机架构自动匹配，无需额外参数。
 
@@ -176,9 +178,13 @@ docker compose up -d --build
 │  └─ combined_task.py     # 合并任务（AI 对话与挂机同时触发时）
 ├─ web_server/
 │  └─ app.py               # Web 后端（Flask）：API + 内置调度线程
-└─ web/
-   ├─ templates/index.html # 管理面板页面
-   └─ static/              # 前端样式与交互（原生 JS，无框架依赖）
+├─ web/
+│  ├─ templates/index.html # 管理面板页面
+│  └─ static/              # 前端样式与交互（原生 JS，无框架依赖）
+└─ desktop/                # ★ Windows 桌面绿色版（免 Docker，见 desktop/README.md）
+   ├─ launcher.py          # 启动器（entrypoint.sh 的 Python 等价重写）
+   ├─ paths.py             # 公共路径模块（frozen/源码双模式）
+   └─ ctyun_launcher.spec  # PyInstaller 打包配置
 ```
 
 ## 工作原理
