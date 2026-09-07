@@ -25,10 +25,6 @@ sys.stderr.reconfigure(encoding="utf-8")
 import login_script
 import pc_login
 
-# 桌面版适配：从公共路径模块取数据目录（原 /app/data / ./ 双分支）
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from paths import data_path  # noqa: E402
-
 from DrissionPage import ChromiumPage
 
 RUNNING_IN_DOCKER = os.getenv("RUNNING_IN_DOCKER") == "true"
@@ -70,8 +66,11 @@ def _do_ai_chat(page: ChromiumPage, username: str, password: str) -> bool:
     print("[合并任务] === 阶段1：AI 对话 ===")
     try:
         is_logged_in = False
-        # 尝试免密登录（复用 login_script 的 cookie 缓存；桌面版统一走数据目录）
-        cookie_file = data_path(f"ctyun_cookies_{username}_.json")
+        # 尝试免密登录（复用 login_script 的 cookie 缓存）
+        if RUNNING_IN_DOCKER:
+            cookie_file = f"/app/data/ctyun_cookies_{username}_.json"
+        else:
+            cookie_file = f"./ctyun_cookies_{username}_.json"
         chat_url = "https://eaichat.ctyun.cn/chat/#/aichat"
         page.get(chat_url)
         time.sleep(1)
@@ -80,6 +79,10 @@ def _do_ai_chat(page: ChromiumPage, username: str, password: str) -> bool:
             page.get(chat_url)
             if page.wait.ele_displayed("css:div.input-box.input-wrap", timeout=5):
                 print("[合并任务] AI 域免密登录成功")
+                # 修复：免密成功也刷新 cookie 文件，保持 mtime 新鲜，
+                # 避免 Web 面板「cookie mtime 超 24h」误报过期（与 login_script 同理）
+                time.sleep(1)
+                login_script.save_cookies(page, cookie_file)
                 is_logged_in = True
             else:
                 print("[合并任务] AI cookie 已失效，准备账密登录")

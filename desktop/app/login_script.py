@@ -18,42 +18,6 @@ from DrissionPage import ChromiumOptions, ChromiumPage
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
-# 桌面版适配：统一从公共路径模块取数据目录，替代 Docker 版的 /app/data 硬编码；
-# 脚本可能被 PyInstaller 主进程以子进程方式调用（源码路径），也可能随包分发，两种场景都兼容。
-try:
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from paths import data_path  # noqa: E402
-except ImportError:  # 兼容极端情况：paths 模块不可用时回退到脚本同级 data 目录
-    def data_path(*parts):
-        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", *parts)
-
-
-def detect_browser_path() -> Optional[str]:
-    """桌面版适配：探测本机可用浏览器，替代 Docker 版硬编码的 /usr/bin/chromium。
-
-    优先级：环境变量 CTYUN_BROWSER_PATH > Edge（Windows 自带，兼容性最好）> Chrome。
-    返回 None 时由 DrissionPage 使用其默认查找逻辑。
-    """
-    # 显式指定优先（高级用户可覆盖）
-    env_browser = os.environ.get("CTYUN_BROWSER_PATH")
-    if env_browser and os.path.isfile(env_browser):
-        return env_browser
-
-    candidates = [
-        # Edge：Windows 10/11 系统自带，免安装，优先使用
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        # Chrome：用户自行安装的情况
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        # 本地用户安装（无管理员权限场景）
-        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
-    ]
-    for c in candidates:
-        if c and os.path.isfile(c):
-            return c
-    return None
-
 PRESET_MESSAGES = [
     "今天北京天气怎么样？（简短回答）",
     "给我讲一个冷笑话。（简短回答）",
@@ -117,24 +81,14 @@ def load_cookies(page: ChromiumPage, file_path: str) -> bool:
 def init_browser_options() -> ChromiumOptions:
     """初始化并配置 Chromium 浏览器的启动参数。"""
     options = ChromiumOptions()
-    # 桌面版适配：动态探测 Edge/Chrome（替代 Docker 版硬编码 /usr/bin/chromium），
-    # 找不到时交由 DrissionPage 默认查找（可能提示下载 Chromium）
-    browser = detect_browser_path()
-    if browser:
-        try:
-            options.set_paths(browser_path=browser)
-        except TypeError:
-            options.set_paths(chromium_path=browser)
+    # 复用系统已安装的 chromium，避免 DrissionPage 再次下载自带 Chromium 导致镜像/容器体积翻倍
+    try:
+        options.set_paths(browser_path="/usr/bin/chromium")
+    except TypeError:
+        options.set_paths(chromium_path="/usr/bin/chromium")
     options.set_argument("--no-sandbox")
     options.set_argument("--disable-gpu")
     options.set_argument("--disable-dev-shm-usage")
-    # 桌面版适配：Windows 下 dev-shm 参数仅对 Linux 有意义，保留不影响；
-    # 隐身模式避免污染用户日常浏览器配置文件
-    options.set_argument("--incognito")
-    # 桌面版适配：使用独立的用户数据目录，避免与用户日常浏览器争抢锁文件，且便于自动化后台运行
-    _user_data = data_path(".browser_profile")
-    os.makedirs(_user_data, exist_ok=True)
-    options.set_argument(f"--user-data-dir={_user_data}")
     options.headless()
     return options
 
@@ -209,10 +163,11 @@ def analyze_login_response(response_body: Union[dict, str, None]) -> int:
 
 
 def save_screenshot(page: ChromiumPage) -> None:
-    # 桌面版适配：截图统一存数据目录（原 /app/data / ./ 双分支合并为公共路径模块）
     file_name = f"{os.getenv('APP_USER')}_{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    path = data_path("screenshots")
-    os.makedirs(path, exist_ok=True)
+    if os.getenv("RUNNING_IN_DOCKER") == "true":
+        path = "/app/data"
+    else:
+        path = "./"
     page.get_screenshot(path=path, name=file_name, full_page=True)
 
 
@@ -620,8 +575,11 @@ def main() -> None:
         sys.exit(1)
 
     # 动态构造 Cookie 文件路径，包含手机号
-    # 桌面版适配：统一存数据目录（原 Docker 版 /app/data、本地版 ./ 双分支合并）
-    cookie_file = data_path(f"ctyun_cookies_{my_username}_.json")
+    # 格式：/app/data/ctyun_cookies_xxx_.json
+    if os.getenv("RUNNING_IN_DOCKER") == "true":
+        cookie_file = f"/app/data/ctyun_cookies_{my_username}_.json"
+    else:
+        cookie_file = f"./ctyun_cookies_{my_username}_.json"
 
     browser_options = init_browser_options()
     page = ChromiumPage(addr_or_opts=browser_options)
@@ -648,6 +606,14 @@ def main() -> None:
                         "css:div.input-box.input-wrap", timeout=10
                     ):
                         print(f"[*] 账号 {my_username} 免密登录成功！")
+                        # 修复：免密成功也刷新 cookie 文件（save_cookies 内含 YL-Token 校验）。
+                        # 背景：Web 面板用 cookie 文件 mtime 是否超过 24h 判定「cookie 过期」，
+                        # 但原逻辑只在重新账密登录时才重写文件——只要 cookie 一直有效，
+                        # 免密复用就永远不会刷新 mtime，导致「明明没过期却提示过期」的误报。
+                        # 免密成功说明当前浏览器 session 就是有效凭证，刷新保存可让 mtime
+                        # 始终新鲜，面板判定与真实状态一致；同时下次任务可直接复用。
+                        time.sleep(1)
+                        save_cookies(page, cookie_file)
                         is_logged_in = True
                     else:
                         print("[-] Cookie 已失效，准备进行账密登录...")
@@ -741,13 +707,18 @@ def safe_logout() -> None:
     """
     my_username = os.getenv("APP_USER")
 
-    # 与 main() 保持一致的 Cookie 文件路径规则（桌面版统一走公共路径模块）
+    # 与 main() 保持一致的 Cookie 文件路径规则
+    if os.getenv("RUNNING_IN_DOCKER") == "true":
+        base_dir = "/app/data"
+    else:
+        base_dir = "."
     if not my_username:
-        # 环境变量缺失时兜底：清理数据目录下所有 ctyun_cookies_*.json
+        # 环境变量缺失时兜底：尝试清理 data 目录下所有 ctyun_cookies_*.json
         import glob
 
         patterns = [
-            os.path.join(data_path(), "ctyun_cookies_*.json"),
+            os.path.join(base_dir, "ctyun_cookies_*.json"),
+            "./ctyun_cookies_*.json",
         ]
         removed = 0
         for pattern in patterns:
@@ -764,7 +735,7 @@ def safe_logout() -> None:
             print("[!] 未找到可清理的 Cookie 文件")
         return
 
-    cookie_file = data_path(f"ctyun_cookies_{my_username}_.json")
+    cookie_file = os.path.join(base_dir, f"ctyun_cookies_{my_username}_.json")
     if os.path.exists(cookie_file):
         try:
             os.remove(cookie_file)

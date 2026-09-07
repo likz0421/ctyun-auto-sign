@@ -606,6 +606,14 @@ def main() -> None:
                         "css:div.input-box.input-wrap", timeout=10
                     ):
                         print(f"[*] 账号 {my_username} 免密登录成功！")
+                        # 修复：免密成功也刷新 cookie 文件（save_cookies 内含 YL-Token 校验）。
+                        # 背景：Web 面板用 cookie 文件 mtime 是否超过 24h 判定「cookie 过期」，
+                        # 但原逻辑只在重新账密登录时才重写文件——只要 cookie 一直有效，
+                        # 免密复用就永远不会刷新 mtime，导致「明明没过期却提示过期」的误报。
+                        # 免密成功说明当前浏览器 session 就是有效凭证，刷新保存可让 mtime
+                        # 始终新鲜，面板判定与真实状态一致；同时下次任务可直接复用。
+                        time.sleep(1)
+                        save_cookies(page, cookie_file)
                         is_logged_in = True
                     else:
                         print("[-] Cookie 已失效，准备进行账密登录...")

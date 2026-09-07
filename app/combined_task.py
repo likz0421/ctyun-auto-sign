@@ -79,6 +79,10 @@ def _do_ai_chat(page: ChromiumPage, username: str, password: str) -> bool:
             page.get(chat_url)
             if page.wait.ele_displayed("css:div.input-box.input-wrap", timeout=5):
                 print("[合并任务] AI 域免密登录成功")
+                # 修复：免密成功也刷新 cookie 文件，保持 mtime 新鲜，
+                # 避免 Web 面板「cookie mtime 超 24h」误报过期（与 login_script 同理）
+                time.sleep(1)
+                login_script.save_cookies(page, cookie_file)
                 is_logged_in = True
             else:
                 print("[合并任务] AI cookie 已失效，准备账密登录")

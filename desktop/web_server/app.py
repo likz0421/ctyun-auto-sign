@@ -1194,8 +1194,15 @@ def get_system_status() -> dict:
         "last_login": settings.get("last_login", "") or (datetime.fromtimestamp(os.path.getmtime(cookie_file)).strftime("%Y-%m-%d %H:%M") if os.path.exists(cookie_file) else ""),
         "cookie_exists": os.path.exists(cookie_file),
         "auth_data_exists": os.path.exists(auth_file),
+        # 修复：cookie 过期判定原为「文件 mtime 超 24h 即过期」，但 cookie 文件
+        # 只在「重新账密登录」时被重写，免密复用/保活/挂机期间不刷新 mtime，
+        # 导致「登录态明明有效却误报已过期」。现改为：
+        #   1. cookie 文件不存在 → 真过期；
+        #   2. 文件存在但 mtime 超 24h → 仅当保活(CtYun.dll)与挂机都不活跃时才算过期。
+        #      因为登录态由保活/挂机持续维持，文件陈旧不代表会话失效。
         "cookie_expired": (not os.path.exists(cookie_file)) or (
-            time.time() - os.path.getmtime(cookie_file) > 24 * 3600
+            (time.time() - os.path.getmtime(cookie_file) > 24 * 3600)
+            and (not ctyun_running) and (not hang_running)
         ),
         "uptime": uptime,
         "hang_status": hang_status,
