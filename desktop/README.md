@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '70f2bfac-1995-4915-a0e0-80cd165de1df'
-  PropagateID: '70f2bfac-1995-4915-a0e0-80cd165de1df'
-  ReservedCode1: '5be48ba7-5e8e-4522-a376-c588880e8ff6'
-  ReservedCode2: '5be48ba7-5e8e-4522-a376-c588880e8ff6'
+  ProduceID: 'cf1c15ec-4237-48ac-ac77-699655202cc0'
+  PropagateID: 'cf1c15ec-4237-48ac-ac77-699655202cc0'
+  ReservedCode1: 'b8b1a5e6-d04f-4fff-bd74-a0049ae19e50'
+  ReservedCode2: 'b8b1a5e6-d04f-4fff-bd74-a0049ae19e50'
 ---
 
 # 天翼云电脑自动化 - Windows 桌面版
@@ -46,7 +46,7 @@ CtYun\
 ## 使用说明
 
 - **控制台窗口**：双击 exe 后会出现一个黑色控制台窗口，显示运行日志；**关闭窗口即退出程序**（面板、保活全部停止）。
-- **保活**：默认连接 5 分钟 → 断开 15 分钟循环；间隔可在面板「保活设置」调整，关闭开关即停止保活。
+- **保活**：默认连接 5 分钟 → 断开 15 分钟循环；间隔可在面板「保活设置」调整，关闭开关即停止保活。自动保活账号下全部云电脑（D 开头）与云手机（M 开头）设备，日志中按 D/M 前缀区分。
 - **AI 对话 / 挂机 / 兑换**：在面板「任务」页手动触发，或在「定时任务」配置每天自动执行。
 - **单实例保护**：程序已在运行时再次双击 exe 会被自动拒绝（防止端口冲突和账号互踢）。
 - **数据安全**：所有数据只保存在本机 `data\` 目录，不上传任何服务器；账号密码仅存于本地 `data\web_settings.json`。
