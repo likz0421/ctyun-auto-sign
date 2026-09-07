@@ -21,15 +21,32 @@ from DrissionPage import ChromiumOptions, ChromiumPage
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
-# 桌面版适配：统一从公共路径模块取数据/临时目录，替代 Docker 版的
-# /app/data、/tmp 硬编码；paths 位于脚本目录的上一级（desktop/）。
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from paths import data_path, tmp_path  # noqa: E402
-from login_script import detect_browser_path  # noqa: E402  # 复用同一套浏览器探测逻辑，避免两脚本探测不一致
-
 LOGIN_URL = "https://pc.ctyun.cn/#/login"
 DESKTOP_URL = "https://pc.ctyun.cn/#/desktop-list"
 DESKTOP_DETAIL_URL_KEY = "/desktop?id="
+
+
+def get_sms_code_file() -> str:
+    """短信验证码交接文件路径（2026-09-06 新增，与 web_server/app.py 的
+    _sms_code_file_for 保持同一规则，保证面板写入路径与本脚本读取路径一致）：
+    - Docker/容器或非 Windows：/tmp/ctyun_sms_code_{user}
+    - 桌面版（Windows）：数据目录 .tmp/ctyun_sms_code_{user}
+    """
+    user = os.getenv("APP_USER", "default") or "default"
+    if os.getenv("RUNNING_IN_DOCKER") == "true" or os.name != "nt":
+        return f"/tmp/ctyun_sms_code_{user}"
+    # 桌面版：数据目录 = 桌面包根目录/data（launcher 已把工作目录设为 desktop/，
+    # 这里以脚本文件位置向上找一级作为根，稳于依赖 cwd）
+    try:
+        base_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        base_root = os.getcwd()
+    tmp_dir = os.path.join(base_root, "data", ".tmp")
+    try:
+        os.makedirs(tmp_dir, exist_ok=True)
+    except Exception:
+        pass
+    return os.path.join(tmp_dir, f"ctyun_sms_code_{user}")
 
 
 def get_hang_seconds() -> int:
@@ -44,15 +61,7 @@ def get_hang_seconds() -> int:
 
 
 HANG_SECONDS = get_hang_seconds()
-# 桌面版适配：状态/结果文件统一走公共路径模块（原 /app/data、/tmp）
-HANG_STATUS_FILE = data_path("hang_status.json")
-RESTART_AT_FILE = tmp_path("ctyun_restart_at")
-REDEEM_RESULT_FILE = tmp_path("ctyun_redeem_result")        # 手动兑换结果
-REDEEM_RESULT_AUTO_FILE = tmp_path("ctyun_redeem_auto")     # 自动兑换结果
-REWARDS_JSON = data_path("rewards.json")
-POINTS_HISTORY_JSON = data_path("points_history.json")
-
-
+HANG_STATUS_FILE = "/app/data/hang_status.json"
 REWARD_LIST_URL = (
     "https://desk.ctyun.cn/selforder/api/selforder/prod/get"
     "?prodId=17000000&prodCode=POINTS"
@@ -61,37 +70,36 @@ PLACE_ORDER_URL = "https://desk.ctyun.cn/selforder/api/selforder/paas/placeOrder
 POINTS_TASK_LIST_URL = (
     "https://desk.ctyun.cn/selforder/api/marketing/userPoints/getTaskList"
 )
+RESTART_AT_FILE = "/tmp/ctyun_restart_at"
+REDEEM_RESULT_FILE = "/tmp/ctyun_redeem_result"        # 手动兑换结果
+REDEEM_RESULT_AUTO_FILE = "/tmp/ctyun_redeem_auto"     # 自动兑换结果
+REWARDS_JSON = "/app/data/rewards.json"
+POINTS_HISTORY_JSON = "/app/data/points_history.json"
 
 
 def init_browser_options(running_in_docker: bool) -> ChromiumOptions:
-    """初始化 Chromium 启动参数。
-
-    桌面版适配：动态探测 Edge/Chrome（替代 Docker 版硬编码 /usr/lib/chromium/chromium），
-    找不到时交由 DrissionPage 默认查找；复用 login_script 的探测函数保持两个脚本一致。
-    """
+    """初始化 Chromium 启动参数。"""
     options = ChromiumOptions()
-    browser = detect_browser_path()
-    if browser:
-        try:
-            options.set_paths(browser_path=browser)
-        except TypeError:
-            options.set_paths(chromium_path=browser)
+    # 复用系统已安装的 chromium，避免 DrissionPage 再次下载自带 Chromium 导致镜像/容器体积翻倍
+    # DrissionPage 4.x 参数名为 browser_path（旧版为 chromium_path）
+    try:
+        options.set_paths(browser_path="/usr/lib/chromium/chromium")
+    except TypeError:
+        options.set_paths(chromium_path="/usr/lib/chromium/chromium")
     options.set_argument("--no-sandbox")
     options.set_argument("--disable-gpu")
     options.set_argument("--disable-dev-shm-usage")
     options.set_argument("--window-size=1920,1080")
-    # 桌面版适配：独立用户数据目录，避免与用户日常浏览器争抢锁文件/污染书签
-    _user_data = data_path(".browser_profile")
-    os.makedirs(_user_data, exist_ok=True)
-    options.set_argument(f"--user-data-dir={_user_data}")
     if running_in_docker:
         options.headless()
     return options
 
 
 def get_auth_data_file(username: str, running_in_docker: bool) -> str:
-    """构造账号专属 authData 文件路径（桌面版统一存数据目录）。"""
-    return data_path(f"ctyun_authData_{username}_.json")
+    """构造账号专属 authData 文件路径。"""
+    if running_in_docker:
+        return f"/app/data/ctyun_authData_{username}_.json"
+    return f"./ctyun_authData_{username}_.json"
 
 
 def save_auth_data(page: ChromiumPage, file_path: str) -> None:
@@ -130,8 +138,10 @@ def get_device_code(username: str, running_in_docker: bool) -> str:
     if env_device:
         return env_device.strip()
 
-    # 桌面版适配：设备码统一存数据目录（原 Docker 版 /app/data、本地版 ./ 双分支合并）
-    file_path = data_path(f".devicecode_{username}")
+    if os.getenv("RUNNING_IN_DOCKER") == "true":
+        file_path = f"/app/data/.devicecode_{username}"
+    else:
+        file_path = f"./.devicecode_{username}"
     if os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
             value = f.read().strip()
@@ -308,9 +318,12 @@ def handle_sms_validate_dialog(
                 continue
 
         # 5. 等待用户输入短信验证码
+        # 2026-09-06 重构等待逻辑：Web 面板会轮询本日志检测"等待短信验证码输入"
+        # 关键字并弹窗让用户在网页里直接输入（写入验证码文件），不再要求用户
+        # 去终端执行 docker exec 命令。交互终端（stdin 为 tty，如手动在容器内
+        # 运行脚本）时仍保留直接输入。
         sms_code = ""
-        # 桌面版适配：短信验证码交接文件统一走公共临时目录（原 /tmp）
-        sms_code_file = tmp_path(f"ctyun_sms_code_{os.getenv('APP_USER', 'default')}")
+        sms_code_file = get_sms_code_file()
 
         if sys.stdin.isatty():
             try:
@@ -318,10 +331,9 @@ def handle_sms_validate_dialog(
             except EOFError:
                 pass
         else:
-            # 2026-09-06 重构（与 Docker 版对齐）：非交互模式（Web 面板/定时任务触发）
-            # 提示用户去 Web 面板弹窗输入验证码，不再提示 docker exec（桌面版
-            # 根本没有 docker，且任务日志里的旧命令用户也看不到）。
-            # 面板（web_server/app.py）会把网页输入的验证码写到本文件，这里轮询读取。
+            # 非交互模式（Web 面板/定时任务触发）：提示用户去网页面板输入，
+            # 并轮询验证码文件等待面板写入（原实现提示 docker exec 命令，
+            # 但任务日志用户根本看不到，等于只能去翻容器终端）。
             print(
                 f"[*] 需要短信验证码：请在 Web 面板弹窗中输入验证码"
                 f"（面板会将验证码写入 {sms_code_file}）；"
@@ -645,26 +657,6 @@ def open_points_center_and_print(page: ChromiumPage, timeout: int = 60) -> int:
         return 0
 
 
-def _pid_alive(pid: int) -> bool:
-    """跨平台检测进程是否存活（Linux 用 /proc，Windows 用 ctypes OpenProcess）。"""
-    if os.name == "nt":
-        import ctypes
-        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        STILL_ACTIVE = 259
-        kernel32 = ctypes.windll.kernel32
-        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
-        if not handle:
-            return False
-        try:
-            exit_code = ctypes.c_ulong()
-            if kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-                return exit_code.value == STILL_ACTIVE
-            return False
-        finally:
-            kernel32.CloseHandle(handle)
-    return os.path.exists(f"/proc/{pid}")
-
-
 def _acquire_hang_lock() -> bool:
     """防止多个挂机进程同时运行（避免状态文件/云端进度叠加错乱）。
 
@@ -673,15 +665,14 @@ def _acquire_hang_lock() -> bool:
     """
     import signal as _signal
 
-    lock_file = data_path(".hang_lock")
+    lock_file = "/app/data/.hang_lock"
     try:
         if os.path.exists(lock_file):
             try:
                 with open(lock_file, "r", encoding="utf-8") as f:
                     old_pid = int(f.read().strip())
                 # 进程仍存在则放弃（可能是上次未退出的孤儿进程）
-                # 桌面版适配：/proc 仅 Linux 存在，Windows 改用 ctypes OpenProcess 探测
-                if old_pid > 0 and _pid_alive(old_pid):
+                if old_pid > 0 and os.path.exists(f"/proc/{old_pid}"):
                     print(f"[!] 检测到已有挂机进程 (PID={old_pid}) 在运行，本次退出避免叠加。")
                     return False
             except Exception:
@@ -716,9 +707,12 @@ def wait_for_points_with_points(
 
     修复点（对比旧版）：
     1. 进度日志只在「墙钟分钟真正递进」时打印一行，消除满 60 分钟后每 10 秒刷屏。
-    2. 达到配置时长 total_seconds 即立即收尾退出，不再「继续挂机至满」误导循环。
+    2. 墙钟达到配置时长后不再直接宣告完成，而是先查云端真实进度：
+       云端「使用1小时」任务 currentProgress >= 3600 才算真完成，否则继续挂机，
+       杜绝「墙钟满 60 分钟但云端只累计 40-50 分钟」的假完成（挂机显示完成但积分任务未达成）。
     3. 页面刷新次数达上限改为直接收尾退出，不再刷崩页面。
-    4. 启动即获取挂机锁，避免容器重启导致的多实例叠加（云端进度残留/瞬间满）。
+    4. 启动即获取挂机锁，避免容器重启导致的多实例互相叠加（云端进度残留/瞬间满）。
+    5. 安全兜底：墙钟超过 total_seconds + 15 分钟仍未云端达标时，强制收尾退出，防止无限挂机。
     """
     # 单实例保护：避免孤儿进程叠加
     if not _acquire_hang_lock():
@@ -730,6 +724,7 @@ def wait_for_points_with_points(
     max_time = 360
     refresh_retry_count_max = 13
     last_reported_min = -1
+    last_reported_cloud_min = -1  # 云端进度分钟（秒/60），用于进度打印去重
     packet_retry_count = 0
     refresh_retry_count = 0
     last_progress_update_time = time.time()
@@ -752,18 +747,42 @@ def wait_for_points_with_points(
         wall_elapsed_sec = int(time.time() - hang_start_time)
         wall_elapsed_min = int(wall_elapsed_sec // 60)
 
-        # 收尾判定优先：达到配置时长立即结束，不再空转刷屏
-        if wall_elapsed_sec >= total_seconds:
-            print(
-                f"[-] {current_time_str} 已挂满 {total_min} 分钟，挂机完成并收尾。"
-            )
+        # 云端真实进度（优先）：「使用1小时」任务 currentProgress（秒）。墙钟只用于
+        # 估算剩余时长，完成与否一律以云端为准；查不到时按 0 处理，继续挂机等待。
+        cloud_progress = 0
+        try:
+            cloud_progress = fetch_current_progress(url, last_valid_headers)
+        except Exception as cp_e:
+            print(f"[!] {current_time_str} 查询云端挂机进度失败: {cp_e}")
+
+        # 挂机完成判定（真完成）：云端进度 >= 3600 秒（60 分钟）。
+        # 修复：旧版只要墙钟满 total_seconds 就宣告完成并硬编码 current_progress=3600，
+        # 但云端任务是从「实际进入云电脑桌面」起计时的，登录耗时/重登/会话过期等都会
+        # 造成墙钟 60 分钟但云端只累计 40-50 分钟 → 假完成。现在以云端真实达标为准。
+        cloud_done = bool(cloud_progress and cloud_progress >= 3600)
+        # 墙钟兜底上限：超过 total_seconds + 15 分钟仍未云端达标时强制收尾，防止无限挂机
+        force_finish = wall_elapsed_sec >= total_seconds + 15 * 60
+        if cloud_done or force_finish:
+            if cloud_done:
+                print(
+                    f"[-] {current_time_str} 云端「使用1小时」任务进度 {cloud_progress}/3600 秒，"
+                    f"挂机完成并收尾。"
+                )
+                status_text = "挂机完成"
+            else:
+                print(
+                    f"[!] {current_time_str} 墙钟已挂 {wall_elapsed_min} 分钟但云端仍未达标"
+                    f"（{cloud_progress}/3600 秒），超过兜底上限，强制收尾退出。"
+                )
+                status_text = "挂机完成（云端未达标）"
             _write_hang_status(
                 running=False,
-                status="挂机完成",
-                elapsed_minutes=total_min,
+                status=status_text,
+                elapsed_minutes=wall_elapsed_min,
                 total_minutes=total_min,
                 remaining_minutes=0,
-                current_progress=3600,
+                # 完成态写云端真实进度（一般 3600），不再硬编码，供面板如实展示
+                current_progress=cloud_progress or 3600,
                 updated=current_time_str,
             )
             try:
@@ -786,16 +805,23 @@ def wait_for_points_with_points(
                 print(f"[!] 挂机后自动兑换异常: {redeem_e}")
             sys.exit(0)
 
-        # 更新挂机状态文件（供 Web 面板显示进度，仅墙钟真实进度，杜绝云端残留瞬间满）
+        # 更新挂机状态文件（供 Web 面板显示进度）
+        # 修复：进度展示以「云端真实进度」优先（更贴近积分任务达标情况），
+        # 云端查不到时回退到墙钟进度，避免面板一直卡 60/N%。
         try:
-            elapsed_min = min(wall_elapsed_min, total_min)
+            if cloud_progress and cloud_progress > 0:
+                elapsed_min = min(int(cloud_progress // 60), total_min)
+                progress_sec = min(int(cloud_progress), 3600)
+            else:
+                elapsed_min = min(wall_elapsed_min, total_min)
+                progress_sec = min(wall_elapsed_sec, 3600)
             _write_hang_status(
                 running=True,
                 status="挂机中",
                 elapsed_minutes=elapsed_min,
                 total_minutes=total_min,
                 remaining_minutes=max(0, total_min - elapsed_min),
-                current_progress=min(wall_elapsed_sec, 3600),
+                current_progress=progress_sec,
                 updated=current_time_str,
             )
         except Exception:
@@ -815,7 +841,8 @@ def wait_for_points_with_points(
                     elapsed_minutes=wall_elapsed_min,
                     total_minutes=total_min,
                     remaining_minutes=0,
-                    current_progress=min(wall_elapsed_sec, 3600),
+                    # 兜底分支也如实记录云端进度（可能未达标），不再硬编码 3600
+                    current_progress=cloud_progress or min(wall_elapsed_sec, 3600),
                     updated=current_time_str,
                 )
                 sys.exit(0)
@@ -853,10 +880,30 @@ def wait_for_points_with_points(
             else:
                 print("[*] 已开启积分兑换，继续执行挂机任务 。\n")
 
-        # 进度展示以「墙钟真实已过时长」为准，云端回报仅作参考
+        # 进度展示以「云端真实进度」优先（贴近任务达标情况），墙钟仅作剩余时长参考
         remain_min = max(0, total_min - wall_elapsed_min)
-        # 仅当墙钟分钟真正递进时打印一条进度，消除刷屏
-        if wall_elapsed_min != last_reported_min and wall_elapsed_min > 0:
+        if cloud_progress and cloud_progress > 0:
+            report_cloud_min = int(cloud_progress // 60)
+            # 墙钟分钟递进或云端分钟递进时均打印一行，让用户看到真实达标进度
+            if (
+                wall_elapsed_min != last_reported_min
+                or report_cloud_min != last_reported_cloud_min
+            ) and report_cloud_min > 0:
+                pct = min(100, int(report_cloud_min / total_min * 100))
+                print(
+                    f"[-] {current_time_str} 已挂机 {report_cloud_min} 分钟"
+                    f"（云端 {cloud_progress}/3600 秒，{pct}%，剩余约 {remain_min} 分钟）。"
+                )
+                last_reported_min = wall_elapsed_min
+                last_reported_cloud_min = report_cloud_min
+                last_progress_update_time = time.time()
+                if pct >= 90 and pct < 100:
+                    print(f"[-] {current_time_str} 挂机即将完成（{pct}%），等待云端达标后收尾。")
+                try:
+                    _update_rewards_points(current_points)
+                except Exception:
+                    pass
+        elif wall_elapsed_min != last_reported_min and wall_elapsed_min > 0:
             pct = min(100, int(wall_elapsed_min / total_min * 100))
             print(
                 f"[-] {current_time_str} 已挂机 {wall_elapsed_min} 分钟（{pct}%，剩余 {remain_min} 分钟）。"
@@ -882,7 +929,8 @@ def wait_for_points_with_points(
                     elapsed_minutes=wall_elapsed_min,
                     total_minutes=total_min,
                     remaining_minutes=0,
-                    current_progress=min(wall_elapsed_sec, 3600),
+                    # 兜底分支也如实记录云端进度（可能未达标），不再硬编码 3600
+                    current_progress=cloud_progress or min(wall_elapsed_sec, 3600),
                     updated=current_time_str,
                 )
                 sys.exit(0)
@@ -912,12 +960,12 @@ def _reset_stale_hang_state_on_start() -> None:
     """
     try:
         # 清理挂机锁（陈旧 PID 已不存在时由 _acquire_hang_lock 覆盖，这里主动清一次更稳）
-        lock_file = data_path(".hang_lock")
+        lock_file = "/app/data/.hang_lock"
         if os.path.exists(lock_file):
             try:
                 with open(lock_file, "r", encoding="utf-8") as f:
                     old_pid = int(f.read().strip())
-                if not (old_pid > 0 and _pid_alive(old_pid)):
+                if not (old_pid > 0 and os.path.exists(f"/proc/{old_pid}")):
                     os.remove(lock_file)
             except Exception:
                 try:
@@ -1144,9 +1192,7 @@ def redeem_now_mode(page: ChromiumPage, running_in_docker: bool = False) -> None
                     }, ensure_ascii=False))
             except Exception as e:
                 print(f"[!] 写入兑换结果失败: {e}")
-            # 桌面版适配：原仅在 Docker 内写重启计划；桌面启动器同样监视该文件，
-            # 因此统一写入（兑换成功后重启 CtYun.dll 使其拉到新会话）
-            if True:
+            if running_in_docker:
                 try:
                     with open(RESTART_AT_FILE, "w", encoding="utf-8") as f:
                         f.write(str(restart_at))
@@ -1201,8 +1247,10 @@ def fetch_current_progress(url: str, headers: Dict[str, str]) -> int:
 
 
 def get_redeem_config_path(running_in_docker: bool) -> str:
-    """兑换配置路径（桌面版统一存数据目录，随 data 目录备份迁移）。"""
-    return data_path("redeem_config.json")
+    """兑换配置路径，保存到持久化 data 目录（Docker volume），容器重建不丢失。"""
+    if running_in_docker:
+        return "/app/data/redeem_config.json"
+    return "./redeem_config.json"
 
 
 def load_redeem_config(path: str) -> dict:
@@ -1440,11 +1488,9 @@ def prompt_and_create_redeem_config(
     page: ChromiumPage, headers: Dict[str, str], running_in_docker: bool
 ) -> dict:
     if not sys.stdin.isatty():
+        print("[*] 检测到后台启动模式，跳过兑换配置交互。")
         print(
-            "[*] 检测到后台启动模式，跳过兑换配置交互。"
-        )
-        print(
-            "[*] 如需配置兑换，请在 Web 面板「兑换配置」页保存，或命令行运行: pc_login.py --config-redeem"
+            "[*] 如需配置兑换，请在容器内手动执行: python3 /app/pc_login.py --config-redeem"
         )
         return {}
 
@@ -1657,13 +1703,13 @@ def auto_redeem_reward_after_hang(
                     }, ensure_ascii=False))
             except Exception as e:
                 print(f"[!] 写入兑换结果失败: {e}")
-            # 桌面版适配：原仅在 Docker 内写重启计划；桌面启动器同样监视该文件，统一写入
-            try:
-                with open(RESTART_AT_FILE, "w", encoding="utf-8") as f:
-                    f.write(str(restart_at))
-                print("[*] 已设置 CtYun.dll 在 2 分钟后自动重启。")
-            except Exception as e:
-                print(f"[!] 写入重启计划失败: {e}")
+            if running_in_docker:
+                try:
+                    with open(RESTART_AT_FILE, "w", encoding="utf-8") as f:
+                        f.write(str(restart_at))
+                    print("[*] 已设置 CtYun.dll 在 2 分钟后自动重启。")
+                except Exception as e:
+                    print(f"[!] 写入重启计划失败: {e}")
             return
         attempt_times -= 1
 
@@ -1804,12 +1850,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def get_settings_path(running_in_docker: bool) -> str:
-    """web_settings.json 路径：优先环境变量 SETTINGS_FILE，否则数据目录。"""
+    """web_settings.json 路径：优先环境变量 SETTINGS_FILE，否则按 Docker 判定。"""
     env_path = os.getenv("SETTINGS_FILE")
     if env_path:
         return env_path
-    # 桌面版适配：统一存数据目录（原 Docker 版 /app/data、本地版 ./ 双分支合并）
-    return data_path("web_settings.json")
+    if running_in_docker:
+        return "/app/data/web_settings.json"
+    return "./web_settings.json"
 
 
 def load_settings(running_in_docker: bool = False) -> dict:
@@ -1981,10 +2028,11 @@ def main(
 
 
 def save_screenshot(page: ChromiumPage) -> None:
-    # 桌面版适配：截图统一存数据目录（原 /app/data / ./ 双分支合并为公共路径模块）
     file_name = f"{os.getenv('APP_USER')}_{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    path = data_path("screenshots")
-    os.makedirs(path, exist_ok=True)
+    if os.getenv("RUNNING_IN_DOCKER") == "true":
+        path = "/app/data"
+    else:
+        path = "./"
     page.get_screenshot(path=path, name=file_name, full_page=True)
 
 

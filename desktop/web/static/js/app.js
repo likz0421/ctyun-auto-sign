@@ -1338,16 +1338,19 @@ function renderHangProgress(hang, cfg) {
     const failed = hang && hang.status === '挂机失败' && !_staleFail;
     if (cardEl) cardEl.classList.toggle('hang-failed', !!failed);
 
-    // 进度计算：优先「墙钟已过时长」（真实可信），云端 current_progress 仅作参考。
+    // 进度计算：优先「云端真实进度」（贴近积分任务达标情况），墙钟仅作参考。
     // 修复：云端任务"使用1小时"上限 3600 秒（60 分钟），配置 > 60 分钟时若优先取云端，
-    // 进度条会永久卡在 60/N%，必须以墙钟为准。
+    // 进度条会永久卡在 60/N%。因此：
+    //   - 云端有进度（current_progress>0）时以云端为准（真实达标进度）；
+    //   - 云端查不到（=0）时回退墙钟 elapsed_minutes，保证面板不卡 0%。
     function calcProgress(h) {
         const total = h.total_minutes || 0;
         let earned = 0;
-        if (h.elapsed_minutes && h.elapsed_minutes > 0) {
-            earned = h.elapsed_minutes;
-        } else if (h.current_progress && h.current_progress > 0) {
+        if (h.current_progress && h.current_progress > 0) {
+            // 云端进度（秒）优先
             earned = Math.floor(h.current_progress / 60);
+        } else if (h.elapsed_minutes && h.elapsed_minutes > 0) {
+            earned = h.elapsed_minutes;
         }
         earned = Math.min(earned, total);
         const pct = total > 0 ? Math.min(100, Math.round((earned / total) * 100)) : 0;
@@ -1368,9 +1371,18 @@ function renderHangProgress(hang, cfg) {
                 metaEl.className = 'stat-sub hang-failed-text';
             } else if (status === '挂机完成' && !_staleDone) {
                 // 完成时间取 updated（收尾写入时刻），有 elapsed 显示实际挂机时长
+                // 修复：区分「真完成」与「云端未达标强制收尾」——后端完成态 current_progress
+                // 已是云端真实值，未达标时前端如实展示，不再一律显示"奖励已到账"
                 const doneMin = hang.elapsed_minutes || hang.total_minutes || 0;
-                metaEl.textContent = `本次挂机已完成（共 ${doneMin} 分钟），奖励已到账`;
-                metaEl.className = 'stat-sub';
+                const realDone = !!hang.current_progress && hang.current_progress >= 3600;
+                if (hang.status === '挂机完成（云端未达标）' || !realDone) {
+                    const cloudMin = hang.current_progress ? Math.floor(hang.current_progress / 60) : 0;
+                    metaEl.textContent = `本次挂机已完成（共 ${doneMin} 分钟），云端任务未达标（${cloudMin}/60 分钟），请检查登录时长`;
+                    metaEl.className = 'stat-sub hang-failed-text';
+                } else {
+                    metaEl.textContent = `本次挂机已完成（共 ${doneMin} 分钟），奖励已到账`;
+                    metaEl.className = 'stat-sub';
+                }
             } else {
                 // 未挂机时显示用户真实配置时长与今日计划，避免显示错误的固定值
                 const cfgMin = (cfg && cfg.hang_minutes) ? cfg.hang_minutes : 0;

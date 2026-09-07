@@ -26,6 +26,29 @@ DESKTOP_URL = "https://pc.ctyun.cn/#/desktop-list"
 DESKTOP_DETAIL_URL_KEY = "/desktop?id="
 
 
+def get_sms_code_file() -> str:
+    """短信验证码交接文件路径（2026-09-06 新增，与 web_server/app.py 的
+    _sms_code_file_for 保持同一规则，保证面板写入路径与本脚本读取路径一致）：
+    - Docker/容器或非 Windows：/tmp/ctyun_sms_code_{user}
+    - 桌面版（Windows）：数据目录 .tmp/ctyun_sms_code_{user}
+    """
+    user = os.getenv("APP_USER", "default") or "default"
+    if os.getenv("RUNNING_IN_DOCKER") == "true" or os.name != "nt":
+        return f"/tmp/ctyun_sms_code_{user}"
+    # 桌面版：数据目录 = 桌面包根目录/data（launcher 已把工作目录设为 desktop/，
+    # 这里以脚本文件位置向上找一级作为根，稳于依赖 cwd）
+    try:
+        base_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        base_root = os.getcwd()
+    tmp_dir = os.path.join(base_root, "data", ".tmp")
+    try:
+        os.makedirs(tmp_dir, exist_ok=True)
+    except Exception:
+        pass
+    return os.path.join(tmp_dir, f"ctyun_sms_code_{user}")
+
+
 def get_hang_seconds() -> int:
     """获取挂机时长（秒）。优先取环境变量 HANG_MINUTES（分钟），默认 80 分钟。"""
     try:
@@ -295,8 +318,12 @@ def handle_sms_validate_dialog(
                 continue
 
         # 5. 等待用户输入短信验证码
+        # 2026-09-06 重构等待逻辑：Web 面板会轮询本日志检测"等待短信验证码输入"
+        # 关键字并弹窗让用户在网页里直接输入（写入验证码文件），不再要求用户
+        # 去终端执行 docker exec 命令。交互终端（stdin 为 tty，如手动在容器内
+        # 运行脚本）时仍保留直接输入。
         sms_code = ""
-        sms_code_file = f"/tmp/ctyun_sms_code_{os.getenv('APP_USER', 'default')}"
+        sms_code_file = get_sms_code_file()
 
         if sys.stdin.isatty():
             try:
@@ -304,29 +331,40 @@ def handle_sms_validate_dialog(
             except EOFError:
                 pass
         else:
-            # 非交互模式（cron 等），等待 300 秒让用户通过 docker exec 输入
+            # 非交互模式（Web 面板/定时任务触发）：提示用户去网页面板输入，
+            # 并轮询验证码文件等待面板写入（原实现提示 docker exec 命令，
+            # 但任务日志用户根本看不到，等于只能去翻容器终端）。
             print(
-                f"[*] 非交互模式，请执行以下命令输入验证码:\n"
-                f"    docker exec -it ctyun_sign_{os.getenv('APP_USER', '')} "
-                f"bash -c 'echo YOUR_CODE > {sms_code_file}'"
+                f"[*] 需要短信验证码：请在 Web 面板弹窗中输入验证码"
+                f"（面板会将验证码写入 {sms_code_file}）；"
+                f"本任务最多等待 300 秒。"
             )
-            # 清除旧文件
+            # 清除旧文件，避免误读上一次任务残留的验证码
             if os.path.exists(sms_code_file):
-                os.remove(sms_code_file)
+                try:
+                    os.remove(sms_code_file)
+                except Exception:
+                    pass
             wait_end = time.time() + 300
+            _last_remaining_bucket = -1
             while time.time() < wait_end:
                 if os.path.exists(sms_code_file):
                     try:
-                        with open(sms_code_file, "r") as f:
+                        with open(sms_code_file, "r", encoding="utf-8") as f:
                             sms_code = f.read().strip()
                         os.remove(sms_code_file)
                         if sms_code:
+                            print("[*] 已从验证码文件读取到输入，继续登录流程。")
                             break
                     except Exception:
                         pass
                 remaining = int(wait_end - time.time())
-                if remaining % 30 == 0 and remaining > 0:
-                    print(f"[*] 等待短信验证码输入... 剩余 {remaining} 秒")
+                # 按剩余秒数分桶打印（每 30 秒一条），避免轮询刷屏把
+                # "等待短信验证码输入"关键字挤出日志尾部导致面板漏检
+                bucket = remaining // 30
+                if bucket != _last_remaining_bucket:
+                    _last_remaining_bucket = bucket
+                    print(f"[*] 等待短信验证码输入... 剩余 {remaining} 秒（请在 Web 面板弹窗中输入）")
                 time.sleep(2)
 
         if not sms_code:
@@ -669,9 +707,12 @@ def wait_for_points_with_points(
 
     修复点（对比旧版）：
     1. 进度日志只在「墙钟分钟真正递进」时打印一行，消除满 60 分钟后每 10 秒刷屏。
-    2. 达到配置时长 total_seconds 即立即收尾退出，不再「继续挂机至满」误导循环。
+    2. 墙钟达到配置时长后不再直接宣告完成，而是先查云端真实进度：
+       云端「使用1小时」任务 currentProgress >= 3600 才算真完成，否则继续挂机，
+       杜绝「墙钟满 60 分钟但云端只累计 40-50 分钟」的假完成（挂机显示完成但积分任务未达成）。
     3. 页面刷新次数达上限改为直接收尾退出，不再刷崩页面。
-    4. 启动即获取挂机锁，避免容器重启导致的多实例叠加（云端进度残留/瞬间满）。
+    4. 启动即获取挂机锁，避免容器重启导致的多实例互相叠加（云端进度残留/瞬间满）。
+    5. 安全兜底：墙钟超过 total_seconds + 15 分钟仍未云端达标时，强制收尾退出，防止无限挂机。
     """
     # 单实例保护：避免孤儿进程叠加
     if not _acquire_hang_lock():
@@ -683,6 +724,7 @@ def wait_for_points_with_points(
     max_time = 360
     refresh_retry_count_max = 13
     last_reported_min = -1
+    last_reported_cloud_min = -1  # 云端进度分钟（秒/60），用于进度打印去重
     packet_retry_count = 0
     refresh_retry_count = 0
     last_progress_update_time = time.time()
@@ -705,18 +747,42 @@ def wait_for_points_with_points(
         wall_elapsed_sec = int(time.time() - hang_start_time)
         wall_elapsed_min = int(wall_elapsed_sec // 60)
 
-        # 收尾判定优先：达到配置时长立即结束，不再空转刷屏
-        if wall_elapsed_sec >= total_seconds:
-            print(
-                f"[-] {current_time_str} 已挂满 {total_min} 分钟，挂机完成并收尾。"
-            )
+        # 云端真实进度（优先）：「使用1小时」任务 currentProgress（秒）。墙钟只用于
+        # 估算剩余时长，完成与否一律以云端为准；查不到时按 0 处理，继续挂机等待。
+        cloud_progress = 0
+        try:
+            cloud_progress = fetch_current_progress(url, last_valid_headers)
+        except Exception as cp_e:
+            print(f"[!] {current_time_str} 查询云端挂机进度失败: {cp_e}")
+
+        # 挂机完成判定（真完成）：云端进度 >= 3600 秒（60 分钟）。
+        # 修复：旧版只要墙钟满 total_seconds 就宣告完成并硬编码 current_progress=3600，
+        # 但云端任务是从「实际进入云电脑桌面」起计时的，登录耗时/重登/会话过期等都会
+        # 造成墙钟 60 分钟但云端只累计 40-50 分钟 → 假完成。现在以云端真实达标为准。
+        cloud_done = bool(cloud_progress and cloud_progress >= 3600)
+        # 墙钟兜底上限：超过 total_seconds + 15 分钟仍未云端达标时强制收尾，防止无限挂机
+        force_finish = wall_elapsed_sec >= total_seconds + 15 * 60
+        if cloud_done or force_finish:
+            if cloud_done:
+                print(
+                    f"[-] {current_time_str} 云端「使用1小时」任务进度 {cloud_progress}/3600 秒，"
+                    f"挂机完成并收尾。"
+                )
+                status_text = "挂机完成"
+            else:
+                print(
+                    f"[!] {current_time_str} 墙钟已挂 {wall_elapsed_min} 分钟但云端仍未达标"
+                    f"（{cloud_progress}/3600 秒），超过兜底上限，强制收尾退出。"
+                )
+                status_text = "挂机完成（云端未达标）"
             _write_hang_status(
                 running=False,
-                status="挂机完成",
-                elapsed_minutes=total_min,
+                status=status_text,
+                elapsed_minutes=wall_elapsed_min,
                 total_minutes=total_min,
                 remaining_minutes=0,
-                current_progress=3600,
+                # 完成态写云端真实进度（一般 3600），不再硬编码，供面板如实展示
+                current_progress=cloud_progress or 3600,
                 updated=current_time_str,
             )
             try:
@@ -739,16 +805,23 @@ def wait_for_points_with_points(
                 print(f"[!] 挂机后自动兑换异常: {redeem_e}")
             sys.exit(0)
 
-        # 更新挂机状态文件（供 Web 面板显示进度，仅墙钟真实进度，杜绝云端残留瞬间满）
+        # 更新挂机状态文件（供 Web 面板显示进度）
+        # 修复：进度展示以「云端真实进度」优先（更贴近积分任务达标情况），
+        # 云端查不到时回退到墙钟进度，避免面板一直卡 60/N%。
         try:
-            elapsed_min = min(wall_elapsed_min, total_min)
+            if cloud_progress and cloud_progress > 0:
+                elapsed_min = min(int(cloud_progress // 60), total_min)
+                progress_sec = min(int(cloud_progress), 3600)
+            else:
+                elapsed_min = min(wall_elapsed_min, total_min)
+                progress_sec = min(wall_elapsed_sec, 3600)
             _write_hang_status(
                 running=True,
                 status="挂机中",
                 elapsed_minutes=elapsed_min,
                 total_minutes=total_min,
                 remaining_minutes=max(0, total_min - elapsed_min),
-                current_progress=min(wall_elapsed_sec, 3600),
+                current_progress=progress_sec,
                 updated=current_time_str,
             )
         except Exception:
@@ -768,7 +841,8 @@ def wait_for_points_with_points(
                     elapsed_minutes=wall_elapsed_min,
                     total_minutes=total_min,
                     remaining_minutes=0,
-                    current_progress=min(wall_elapsed_sec, 3600),
+                    # 兜底分支也如实记录云端进度（可能未达标），不再硬编码 3600
+                    current_progress=cloud_progress or min(wall_elapsed_sec, 3600),
                     updated=current_time_str,
                 )
                 sys.exit(0)
@@ -806,10 +880,30 @@ def wait_for_points_with_points(
             else:
                 print("[*] 已开启积分兑换，继续执行挂机任务 。\n")
 
-        # 进度展示以「墙钟真实已过时长」为准，云端回报仅作参考
+        # 进度展示以「云端真实进度」优先（贴近任务达标情况），墙钟仅作剩余时长参考
         remain_min = max(0, total_min - wall_elapsed_min)
-        # 仅当墙钟分钟真正递进时打印一条进度，消除刷屏
-        if wall_elapsed_min != last_reported_min and wall_elapsed_min > 0:
+        if cloud_progress and cloud_progress > 0:
+            report_cloud_min = int(cloud_progress // 60)
+            # 墙钟分钟递进或云端分钟递进时均打印一行，让用户看到真实达标进度
+            if (
+                wall_elapsed_min != last_reported_min
+                or report_cloud_min != last_reported_cloud_min
+            ) and report_cloud_min > 0:
+                pct = min(100, int(report_cloud_min / total_min * 100))
+                print(
+                    f"[-] {current_time_str} 已挂机 {report_cloud_min} 分钟"
+                    f"（云端 {cloud_progress}/3600 秒，{pct}%，剩余约 {remain_min} 分钟）。"
+                )
+                last_reported_min = wall_elapsed_min
+                last_reported_cloud_min = report_cloud_min
+                last_progress_update_time = time.time()
+                if pct >= 90 and pct < 100:
+                    print(f"[-] {current_time_str} 挂机即将完成（{pct}%），等待云端达标后收尾。")
+                try:
+                    _update_rewards_points(current_points)
+                except Exception:
+                    pass
+        elif wall_elapsed_min != last_reported_min and wall_elapsed_min > 0:
             pct = min(100, int(wall_elapsed_min / total_min * 100))
             print(
                 f"[-] {current_time_str} 已挂机 {wall_elapsed_min} 分钟（{pct}%，剩余 {remain_min} 分钟）。"
@@ -835,7 +929,8 @@ def wait_for_points_with_points(
                     elapsed_minutes=wall_elapsed_min,
                     total_minutes=total_min,
                     remaining_minutes=0,
-                    current_progress=min(wall_elapsed_sec, 3600),
+                    # 兜底分支也如实记录云端进度（可能未达标），不再硬编码 3600
+                    current_progress=cloud_progress or min(wall_elapsed_sec, 3600),
                     updated=current_time_str,
                 )
                 sys.exit(0)
