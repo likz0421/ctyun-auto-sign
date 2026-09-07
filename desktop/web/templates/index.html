@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>cTyun 控制台</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260907c">
+  <link rel="stylesheet" href="/static/css/style.css?v=20260907d">
 </head>
 <body>
 <!-- 壁纸承载层：独立固定定位合成层（配合 .wallpaper-layer 样式），
@@ -444,42 +444,10 @@
           </div>
         </div>
       </div>
-      <!-- 修改面板账号弹窗（2026-09-07）：毛玻璃遮罩+卡片，与面板整体风格一致。
-           旧密码必填；新用户名/新密码至少填一项；新密码带二次确认与可见切换 -->
-      <div class="modal-overlay" id="panelAuthModal">
-        <div class="modal-box">
-          <div class="modal-header"><i class="mdi mdi-key-change"></i><span>修改面板账号</span></div>
-          <div class="modal-body">
-            <div class="form-group">
-              <label>旧密码 <span class="label-hint">验证身份必填</span></label>
-              <input type="password" class="form-control" id="modalOldPwd" placeholder="请输入当前密码" autocomplete="current-password">
-            </div>
-            <div class="form-group">
-              <label>新用户名 <span class="label-hint">留空则不修改</span></label>
-              <input type="text" class="form-control" id="modalNewUser" placeholder="字母/数字/下划线，2-32 位" autocomplete="username">
-            </div>
-            <div class="form-group">
-              <label>新密码 <span class="label-hint">至少 4 位，留空则不修改</span></label>
-              <div style="position:relative">
-                <input type="password" class="form-control" id="modalNewPwd" placeholder="至少 4 位" autocomplete="new-password" style="padding-right:42px">
-                <button type="button" id="modalNewPwdEye" class="pwd-eye-btn" title="显示/隐藏密码"><i class="mdi mdi-eye-off-outline"></i></button>
-              </div>
-            </div>
-            <div class="form-group">
-              <label>确认新密码</label>
-              <div style="position:relative">
-                <input type="password" class="form-control" id="modalNewPwd2" placeholder="再次输入新密码" autocomplete="new-password" style="padding-right:42px">
-                <button type="button" id="modalNewPwdEye2" class="pwd-eye-btn" title="显示/隐藏密码"><i class="mdi mdi-eye-off-outline"></i></button>
-              </div>
-            </div>
-            <div class="modal-error" id="panelAuthModalError"></div>
-          </div>
-          <div class="modal-actions">
-            <button class="btn btn-ghost modal-cancel" id="panelAuthModalCancel">取消</button>
-            <button class="btn btn-primary" id="panelAuthModalSave"><span class="spinner" style="display:none"></span>保存</button>
-          </div>
-        </div>
-      </div>
+
+      <!-- 修改面板账号弹窗（2026-09-07）：已移至 body 直下（见文件末尾），
+           原先嵌在 .sub-page 内部，position:fixed 弹窗在设置页未激活时会被
+           display:none 的祖先链裁剪为 0×0，且视口定位随页面滚动错乱 -->
     </div>
 
     <!-- 自动化子页（AI对话 / 挂机 / 保活 / 积分刷新 / 静默监控） -->
@@ -652,6 +620,45 @@
 
 <div class="toast-container" id="toastContainer"></div>
 
+<!-- 修改面板账号弹窗（2026-09-07 从设置页 sub-page 内移出）：
+     毛玻璃遮罩+卡片；必须在 body 直下，否则 fixed 定位会被未激活
+     sub-page 的 display:none 祖先链裁剪、且随文档流滚动错位。
+     旧密码必填；新用户名/新密码至少填一项；新密码带二次确认与可见切换 -->
+<div class="modal-overlay" id="panelAuthModal">
+  <div class="modal-box">
+    <div class="modal-header"><i class="mdi mdi-key-change"></i><span>修改面板账号</span></div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>旧密码 <span class="label-hint">验证身份必填</span></label>
+        <input type="password" class="form-control" id="modalOldPwd" placeholder="请输入当前密码" autocomplete="current-password">
+      </div>
+      <div class="form-group">
+        <label>新用户名 <span class="label-hint">留空则不修改</span></label>
+        <input type="text" class="form-control" id="modalNewUser" placeholder="字母/数字/下划线，2-32 位" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>新密码 <span class="label-hint">至少 4 位，留空则不修改</span></label>
+        <div style="position:relative">
+          <input type="password" class="form-control" id="modalNewPwd" placeholder="至少 4 位" autocomplete="new-password" style="padding-right:42px">
+          <button type="button" id="modalNewPwdEye" class="pwd-eye-btn" title="显示/隐藏密码"><i class="mdi mdi-eye-off-outline"></i></button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>确认新密码</label>
+        <div style="position:relative">
+          <input type="password" class="form-control" id="modalNewPwd2" placeholder="再次输入新密码" autocomplete="new-password" style="padding-right:42px">
+          <button type="button" id="modalNewPwdEye2" class="pwd-eye-btn" title="显示/隐藏密码"><i class="mdi mdi-eye-off-outline"></i></button>
+        </div>
+      </div>
+      <div class="modal-error" id="panelAuthModalError"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost modal-cancel" id="panelAuthModalCancel">取消</button>
+      <button class="btn btn-primary" id="panelAuthModalSave"><span class="spinner" style="display:none"></span>保存</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="redeemProgressModal" style="display:none;">
   <div class="modal glass-strong">
     <div class="modal-header"><h3><i class="mdi mdi-swap-horizontal-circle-outline"></i> 兑换进度</h3>
@@ -708,7 +715,7 @@
   <span class="nb-close" onclick="hideNotifyBanner()">×</span>
 </div>
 
-<script src="/static/js/icons.js?v=20260907c"></script>
-  <script src="/static/js/app.js?v=20260907c"></script>
+<script src="/static/js/icons.js?v=20260907d"></script>
+  <script src="/static/js/app.js?v=20260907d"></script>
 </body>
 </html>
