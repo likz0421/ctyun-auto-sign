@@ -2634,7 +2634,17 @@ async function loadLogs() {
         const data = await apiRequest(`${API.getLogs}?type=${currentLogType}`);
         const viewer = document.getElementById('logViewer');
         if (data.logs && data.logs.length > 0) {
-            viewer.textContent = data.logs.join('\n');
+            // 2026-09-08：保活日志中为云电脑（D 开头）与云手机（M 开头）设备行加彩色标签，
+            // 便于直观区分两类设备的保活记录；其余日志原样纯文本展示（escapeHtml 防注入）。
+            const html = data.logs.map(line => {
+                const m = line.match(/\[(D\d+)\]|\[(M\d+)\]/);
+                if (m) {
+                    const tag = m[1] ? '<span class="log-dev-tag pc">云电脑</span>' : '<span class="log-dev-tag phone">云手机</span>';
+                    return tag + escapeHtml(line);
+                }
+                return escapeHtml(line);
+            }).join('\n');
+            viewer.innerHTML = html;
         } else {
             viewer.textContent = '暂无日志';
         }
