@@ -4,12 +4,33 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>cTyun 控制台</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260905d">
+  <link rel="stylesheet" href="/static/css/style.css?v=20260907c">
 </head>
 <body>
 <!-- 壁纸承载层：独立固定定位合成层（配合 .wallpaper-layer 样式），
      替代原先 body background-attachment: fixed 的实现，修复滚动时壁纸跳动 -->
 <div class="wallpaper-layer" aria-hidden="true"></div>
+
+<!-- 面板登录遮罩层（2026-09-07 默认账号模式）：
+     Docker 版默认启用登录保护（默认账号 admin/admin），未登录时遮罩全屏；
+     登录后在设置页修改用户名/密码；桌面版（CTYUN_DESKTOP）由后端
+     /api/auth/check 返回 auth_required=false，此层不展示 -->
+<div class="panel-auth-overlay" id="panelAuthOverlay" style="display:none;">
+  <div class="panel-auth-box glass-strong">
+    <div class="panel-auth-head">
+      <div class="panel-auth-logo"><i class="mdi mdi-cloud-laptop"></i></div>
+      <div class="panel-auth-title">cTyun 控制台</div>
+      <div class="panel-auth-sub" id="panelAuthSub">请输入面板账号密码继续（默认 admin / admin）</div>
+    </div>
+    <!-- 登录表单（默认账号 admin / admin） -->
+    <form class="panel-auth-form" id="panelAuthLoginForm" style="display:none;" autocomplete="off">
+      <input type="text" class="form-control" id="panelAuthUser" placeholder="用户名（默认 admin）" autocomplete="username" value="admin">
+      <input type="password" class="form-control" id="panelAuthPwd" placeholder="密码（默认 admin）" autocomplete="current-password">
+      <button type="submit" class="btn btn-primary" id="panelAuthLoginBtn">进入控制台</button>
+    </form>
+    <div class="panel-auth-error" id="panelAuthError"></div>
+  </div>
+</div>
 
 <main class="main-content">
 
@@ -400,6 +421,65 @@
           </div>
         </div>
       </div>
+      <!-- 面板安全卡（2026-09-07 默认账号模式）：Docker 版可在此改用户名/密码/开关保护/退出登录；
+           桌面版由 /api/auth/status 返回 available=false，整卡隐藏 -->
+      <div class="card glass" id="panelAuthCard" style="display:none;">
+        <div class="card-header"><h3><i class="mdi mdi-shield-lock-outline"></i> 面板安全</h3></div>
+        <div class="card-body">
+          <div class="toggle-row">
+            <div><div class="toggle-row-title">启用面板登录保护</div><div class="toggle-row-desc">开启后访问面板需要输入账号密码（建议公网部署时开启）</div></div>
+            <label class="switch"><input type="checkbox" id="panelAuthEnabled"><span class="switch-slider"></span></label>
+          </div>
+          <div class="form-group">
+            <label>面板账号</label>
+            <!-- 2026-09-07 交互升级：三输入框改为弹窗式修改，卡片内只留入口按钮 -->
+            <div class="inline-group">
+              <input type="text" class="form-control" id="panelAuthNewUser" placeholder="当前用户名" readonly style="cursor:default">
+              <button class="btn btn-primary btn-sm" id="btnPanelAuthChangePwd"><i class="mdi mdi-key-change"></i><span>修改账号</span></button>
+            </div>
+          </div>
+          <div class="action-row">
+            <button class="btn btn-ghost" id="btnPanelAuthLogout"><i class="mdi mdi-logout-variant"></i><span>退出面板登录</span></button>
+            <span style="font-size:12px;color:var(--text-muted)">退出后需重新输入面板账号密码（不影响天翼云账号登录状态）</span>
+          </div>
+        </div>
+      </div>
+      <!-- 修改面板账号弹窗（2026-09-07）：毛玻璃遮罩+卡片，与面板整体风格一致。
+           旧密码必填；新用户名/新密码至少填一项；新密码带二次确认与可见切换 -->
+      <div class="modal-overlay" id="panelAuthModal">
+        <div class="modal-box">
+          <div class="modal-header"><i class="mdi mdi-key-change"></i><span>修改面板账号</span></div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label>旧密码 <span class="label-hint">验证身份必填</span></label>
+              <input type="password" class="form-control" id="modalOldPwd" placeholder="请输入当前密码" autocomplete="current-password">
+            </div>
+            <div class="form-group">
+              <label>新用户名 <span class="label-hint">留空则不修改</span></label>
+              <input type="text" class="form-control" id="modalNewUser" placeholder="字母/数字/下划线，2-32 位" autocomplete="username">
+            </div>
+            <div class="form-group">
+              <label>新密码 <span class="label-hint">至少 4 位，留空则不修改</span></label>
+              <div style="position:relative">
+                <input type="password" class="form-control" id="modalNewPwd" placeholder="至少 4 位" autocomplete="new-password" style="padding-right:42px">
+                <button type="button" id="modalNewPwdEye" class="pwd-eye-btn" title="显示/隐藏密码"><i class="mdi mdi-eye-off-outline"></i></button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>确认新密码</label>
+              <div style="position:relative">
+                <input type="password" class="form-control" id="modalNewPwd2" placeholder="再次输入新密码" autocomplete="new-password" style="padding-right:42px">
+                <button type="button" id="modalNewPwdEye2" class="pwd-eye-btn" title="显示/隐藏密码"><i class="mdi mdi-eye-off-outline"></i></button>
+              </div>
+            </div>
+            <div class="modal-error" id="panelAuthModalError"></div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost modal-cancel" id="panelAuthModalCancel">取消</button>
+            <button class="btn btn-primary" id="panelAuthModalSave"><span class="spinner" style="display:none"></span>保存</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 自动化子页（AI对话 / 挂机 / 保活 / 积分刷新 / 静默监控） -->
@@ -628,7 +708,7 @@
   <span class="nb-close" onclick="hideNotifyBanner()">×</span>
 </div>
 
-<script src="/static/js/icons.js?v=20260905d"></script>
-  <script src="/static/js/app.js?v=20260905d"></script>
+<script src="/static/js/icons.js?v=20260907c"></script>
+  <script src="/static/js/app.js?v=20260907c"></script>
 </body>
 </html>

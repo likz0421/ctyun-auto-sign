@@ -30,35 +30,191 @@ except ImportError:
 # ============================================
 # Constants
 # ============================================
-# 桌面版适配：统一从公共路径模块取数据目录与临时目录，替代 Docker 版的
-# /app/data、/tmp、/etc/cron.d 硬编码；paths.py 位于 web_server 的上一级。
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from paths import DATA_DIR as _PATHS_DATA_DIR, tmp_path, APP_DIR  # noqa: E402
-
-# 优先级：环境变量 DATA_DIR > 公共路径模块（exe 同级 data/）。
-# 注：原 Docker 版默认值 "/app/data" 仅在容器内成立，桌面版改由 paths 模块决定。
-DATA_DIR = os.environ.get("DATA_DIR") or _PATHS_DATA_DIR
+DATA_DIR = os.environ.get("DATA_DIR", "/app/data")
 SETTINGS_FILE = os.path.join(DATA_DIR, "web_settings.json")
 LOG_FILE = os.path.join(DATA_DIR, "web_panel.log")
 KEEPALIVE_LOG_FILE = os.path.join(DATA_DIR, "ctyun_keepalive.log")
 REWARDS_JSON = os.path.join(DATA_DIR, "rewards.json")
 DEVICECODE_FILE_PREFIX = os.path.join(DATA_DIR, ".devicecode_")
 REDEEM_CONFIG_FILE = os.path.join(DATA_DIR, "redeem_config.json")
-# 桌面版适配：容器内曾用 /etc/cron.d，桌面版改存数据目录（仅作历史兼容，调度已由线程驱动）
-CRON_FILE = os.path.join(DATA_DIR, "ctyun-cron.txt")
-# 保活重载标记：保存保活配置后写入，entrypoint/桌面启动器守护循环检测到后立即应用新配置。
+CRON_FILE = "/etc/cron.d/ctyun-cron"
+# 保活重载标记：保存保活配置后写入，entrypoint 守护循环检测到后立即应用新配置。
 # 补全：备用 HTTP 服务器保存路径此前漏写该标记，保活配置变更不及时生效。
-# 桌面版适配：/tmp 改为数据目录下 .tmp（与 pc_login 的 tmp_path 一致）。
-KEEPALIVE_RELOAD_FLAG = tmp_path("ctyun_reload")
+KEEPALIVE_RELOAD_FLAG = "/tmp/ctyun_reload"
 
-# 确保数据目录存在，并统一为公共路径模块的数据目录（与 pc_login.py 的 HANG_STATUS_FILE 一致）
+# ============================================
+# 面板访问鉴权（Panel Access Auth）
+# ============================================
+# 设计说明（2026-09-07 简化为固定默认账号模式，按用户要求）：
+# - Docker 版（公网可达）默认启用登录保护，内置默认账号 admin / 密码 admin；
+# - 桌面版（launcher.py 启动时注入 CTYUN_DESKTOP=1，仅本机使用）完全跳过登录；
+# - 配置存 web_settings.json 的 panel_auth 节点：{enabled, username, password_hash,
+#   salt, token}；password_hash = sha256(salt + 密码)，token 为随机串，前端存
+#   localStorage 并随 X-Auth-Token 头提交。
+# - 首次启动（无配置）时惰性写入默认账号 admin/admin，登录后在设置页即可修改
+#   用户名和密码；无需 setup 初始化流程。
+PANEL_AUTH_SKIP_ENV = "CTYUN_DESKTOP"          # 桌面版标记：存在即免登录
+AUTH_TOKEN_FILE = os.path.join(DATA_DIR, ".auth_token")  # token 持久化（重启后仍有效）
+DEFAULT_PANEL_USER = "admin"                   # 默认面板用户名
+DEFAULT_PANEL_PASSWORD = "admin"               # 默认面板密码（登录后请在设置页修改）
+
+# 无需鉴权即可访问的路径（静态资源 + 登录端点自身）；其余 API 一律需要 token
+AUTH_PUBLIC_PATHS = (
+    "/static/",        # 前端 CSS/JS（登录页也需要样式）
+    "/favicon.ico",
+    "/api/auth/check",
+    "/api/auth/login",
+)
+
+
+def _is_desktop_mode() -> bool:
+    """桌面版免登录判断：launcher.py 启动面板时注入 CTYUN_DESKTOP=1。"""
+    return bool(os.environ.get(PANEL_AUTH_SKIP_ENV, "").strip())
+
+
+def _load_panel_auth() -> dict:
+    """从 web_settings.json 读取 panel_auth 配置。
+    2026-09-07 改为默认账号模式：无配置（或旧配置缺 username）时惰性生成默认
+    账号 admin/admin 并落盘，保证 Docker 版开箱即需登录、凭据明确可修改。"""
+    result = None
+    try:
+        ws = load_web_settings()
+        pa = ws.get("panel_auth")
+        if isinstance(pa, dict):
+            # 补齐缺失键，避免旧配置结构不完整导致判断异常
+            result = {
+                "enabled": bool(pa.get("enabled", False)),
+                "username": str(pa.get("username", "") or DEFAULT_PANEL_USER),
+                "password_hash": str(pa.get("password_hash", "") or ""),
+                "salt": str(pa.get("salt", "") or ""),
+                "token": str(pa.get("token", "") or ""),
+            }
+            # 旧版本配置没有 username 字段：补默认值并回写，避免每次请求重复补齐
+            if not str(pa.get("username", "") or ""):
+                _save_panel_auth(result)
+            return result
+    except Exception:
+        pass
+    # 全新部署（或配置读取失败）：惰性生成默认账号 admin/admin 并落盘
+    salt = secrets.token_hex(16)
+    result = {
+        "enabled": True,
+        "username": DEFAULT_PANEL_USER,
+        "password_hash": _hash_password(DEFAULT_PANEL_PASSWORD, salt),
+        "salt": salt,
+        "token": secrets.token_hex(32),
+    }
+    if _save_panel_auth(result):
+        # token 同步双写独立文件（见 _get_or_create_token 注释）
+        try:
+            with open(AUTH_TOKEN_FILE, "w", encoding="utf-8") as f:
+                f.write(result["token"])
+        except Exception:
+            pass
+    return result
+
+
+def _save_panel_auth(pa: dict) -> bool:
+    """加锁合并保存 panel_auth 到 web_settings.json（不动其他配置）。"""
+    try:
+        with _SETTINGS_LOCK:
+            ws = load_web_settings()
+            ws["panel_auth"] = pa
+            save_web_settings(ws)
+        return True
+    except Exception:
+        return False
+
+
+def _hash_password(password: str, salt: str) -> str:
+    """sha256(salt + password) 十六进制；仅本地面板防护用途，避免明文落盘。"""
+    import hashlib
+    return hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+
+
+def _get_or_create_token() -> str:
+    """生成并持久化面板访问 token（重启后不变，避免改密码后所有设备都要重登）。"""
+    pa = _load_panel_auth()
+    if pa.get("token"):
+        return pa["token"]
+    token = secrets.token_hex(32)
+    pa["token"] = token
+    _save_panel_auth(pa)
+    # 双写独立文件：即便 web_settings 被其他写入覆盖丢失 panel_auth，
+    # 仍可从该文件恢复 token，避免用户被莫名登出
+    try:
+        with open(AUTH_TOKEN_FILE, "w", encoding="utf-8") as f:
+            f.write(token)
+    except Exception:
+        pass
+    return token
+
+
+def _verify_password(password: str, pa: dict) -> bool:
+    """校验密码；使用 hmac.compare_digest 防时序比较侧信道。"""
+    import hmac
+    if not pa.get("password_hash") or not pa.get("salt"):
+        return False
+    calc = _hash_password(password, pa["salt"])
+    return hmac.compare_digest(calc, pa["password_hash"])
+
+
+def _panel_auth_required() -> bool:
+    """当前是否需要面板登录：非桌面版 且 panel_auth.enabled=True 且已设置密码。"""
+    if _is_desktop_mode():
+        return False
+    pa = _load_panel_auth()
+    return bool(pa.get("enabled") and pa.get("password_hash"))
+
+
+def _extract_request_token(req) -> str:
+    """从请求头/查询参数提取 token（兼容 EventSource 等无法带自定义头的场景）。"""
+    try:
+        tok = req.headers.get("X-Auth-Token", "") or ""
+        if not tok:
+            # Flask: req.args；fallback 传入的是 BaseHTTPRequestHandler，用 query 解析
+            if HAS_FLASK:
+                tok = req.args.get("auth_token", "") or ""
+            else:
+                q = parse_qs(urlparse(req.path).query)
+                tok = q.get("auth_token", [""])[0]
+        return str(tok or "")
+    except Exception:
+        return ""
+
+
+def _check_request_auth(req) -> bool:
+    """统一鉴权判断：桌面版/未启用 → 放行；否则校验 token 是否匹配。"""
+    if not _panel_auth_required():
+        return True
+    pa = _load_panel_auth()
+    token = _extract_request_token(req)
+    import hmac as _hmac
+    if not token:
+        return False
+    return _hmac.compare_digest(str(token), str(pa.get("token", "")))
+
+
+def _sms_code_file_for(username: str) -> str:
+    """短信验证码交接文件路径（2026-09-06 统一规则，供 web_server 与 pc_login.py 共用）：
+    - Docker/容器环境（RUNNING_IN_DOCKER=true 或非 Windows）：/tmp/ctyun_sms_code_{user}
+    - 桌面版（Windows）：DATA_DIR/.tmp/ctyun_sms_code_{user}
+    Docker 下保持 /tmp 不变以兼容已运行的旧容器；桌面版 /tmp 不存在故落到数据目录。
+    """
+    if os.environ.get("RUNNING_IN_DOCKER") == "true" or os.name != "nt":
+        return f"/tmp/ctyun_sms_code_{username}"
+    base = os.environ.get("CTYUN_TMP_DIR") or os.path.join(DATA_DIR, ".tmp")
+    try:
+        os.makedirs(base, exist_ok=True)
+    except Exception:
+        pass
+    return os.path.join(base, f"ctyun_sms_code_{username}")
+
+# 确保数据目录存在，并统一为容器内 /app/data（与 pc_login.py 的 HANG_STATUS_FILE 一致）
 try:
     os.makedirs(DATA_DIR, exist_ok=True)
 except Exception:
     pass
-
-# 桌面版适配：本进程启动时刻（Windows 下 psutil 不可用时用于近似计算 uptime）
-_PROCESS_START_TS = time.time()
 
 # ============================================
 # Settings Management
@@ -193,10 +349,9 @@ def save_device_code(code: str) -> None:
     os.environ["DEVICECODE"] = code
 
     # Write to /etc/environment for cron processes
-    # 桌面版适配：Windows 无 /etc/environment，仅 Linux 且文件存在时才写（保留容器兼容）
     try:
         env_file = "/etc/environment"
-        if os.name != "nt" and os.path.exists(env_file):
+        if os.path.exists(env_file):
             content = ""
             with open(env_file, "r") as f:
                 content = f.read()
@@ -936,30 +1091,21 @@ def get_system_status() -> dict:
     cookie_file = os.path.join(DATA_DIR, f"ctyun_cookies_{username}_.json")
     auth_file = os.path.join(DATA_DIR, f"ctyun_authData_{username}_.json")
 
-    # Uptime（进程启动至今的时长）。
-    # 原 Docker 版：从 /proc/uptime + /proc/1/stat 推算容器主进程启动时间（仅 Linux）。
-    # 桌面版适配：Windows 无 /proc，改用 psutil 的 create_time()；
-    # psutil 不可用时回退到本进程解释器启动时刻近似值。
+    # Container uptime (since the Docker container's main process started),
+    # NOT the host system uptime. Computed from PID 1 start time (clock ticks
+    # since boot) minus system boot time read from /proc/uptime.
     uptime = "未知"
     try:
-        if os.name == "nt":
-            try:
-                import psutil  # PyInstaller 打包时随包分发
-
-                uptime_seconds = max(0, time.time() - psutil.Process().create_time())
-            except Exception:
-                uptime_seconds = time.time() - _PROCESS_START_TS
-        else:
-            with open("/proc/uptime", "r") as f:
-                system_uptime = float(f.read().split()[0])
-            with open("/proc/1/stat", "r") as f:
-                stat = f.read().split()
-            # Field 22 (0-indexed 21) = start_time in clock ticks since boot
-            clk_ticks = os.sysconf("SC_CLK_TCK") or 100
-            pid1_start_since_boot = int(stat[21]) / clk_ticks
-            boot_epoch = time.time() - system_uptime
-            container_start_epoch = boot_epoch + pid1_start_since_boot
-            uptime_seconds = max(0, time.time() - container_start_epoch)
+        with open("/proc/uptime", "r") as f:
+            system_uptime = float(f.read().split()[0])
+        with open("/proc/1/stat", "r") as f:
+            stat = f.read().split()
+        # Field 22 (0-indexed 21) = start_time in clock ticks since boot
+        clk_ticks = os.sysconf("SC_CLK_TCK") or 100
+        pid1_start_since_boot = int(stat[21]) / clk_ticks
+        boot_epoch = time.time() - system_uptime
+        container_start_epoch = boot_epoch + pid1_start_since_boot
+        uptime_seconds = max(0, time.time() - container_start_epoch)
         hours = int(uptime_seconds // 3600)
         minutes = int((uptime_seconds % 3600) // 60)
         uptime = f"{hours}h {minutes}m"
@@ -1108,10 +1254,10 @@ def _monitor_task_result(proc, task_type, minutes=None, _task_lock=None):
             except Exception:
                 pass
     if task_type == "pc_hang":
-        # 挂机结束后自动兑换的结果一并推送（pc_login 写在临时目录 ctyun_redeem_auto）
+        # 挂机结束后自动兑换的结果一并推送（pc_login 写在 /tmp/ctyun_redeem_auto）
         redeem_note = ""
         try:
-            with open(tmp_path("ctyun_redeem_auto"), "r", encoding="utf-8") as f:
+            with open("/tmp/ctyun_redeem_auto", "r", encoding="utf-8") as f:
                 r = json.load(f)
             if r.get("ok"):
                 redeem_note = f"\n\n已自动兑换 {r.get('prod')} × {r.get('times')} 次（消耗 {r.get('cost')} 积分，当前 {r.get('points')} 积分）"
@@ -1144,7 +1290,7 @@ def _monitor_task_result(proc, task_type, minutes=None, _task_lock=None):
     elif task_type == "redeem":
         # 手动兑换：读取 pc_login.py 写的结果文件决定推送内容
         try:
-            with open(tmp_path("ctyun_redeem_result"), "r", encoding="utf-8") as f:
+            with open("/tmp/ctyun_redeem_result", "r", encoding="utf-8") as f:
                 r = json.load(f)
             if r.get("ok"):
                 notify_event("redeem_ok", "兑换物品成功",
@@ -1170,38 +1316,40 @@ _BROWSER_TASK_LOCK = threading.Lock()
 
 def execute_task(task_type: str, params: dict = None) -> dict:
     """Execute a task. params 可携带额外参数（如挂机时长 minutes）。"""
-    # 桌面版适配：脚本路径由容器内 /app/*.py 改为应用目录（exe 同级 app/），
-    # PyInstaller 打包后脚本随包分发在 app/ 目录下，由主进程 python 解释器执行。
     tasks = {
+        # 容器内实际布局（见 app/Dockerfile COPY 指令）：脚本位于 /app/ 根目录，
+        # 即 /app/login_script.py、/app/pc_login.py、/app/combined_task.py，
+        # 不存在 /app/app/ 子目录。此前写成 /app/app/xxx.py 导致所有任务
+        # 触发时因"脚本不存在"直接失败（挂机不跑、积分不兑换、登录测试失败）。
         "ai_chat": {
-            "script": os.path.join(APP_DIR, "login_script.py"),
+            "script": "/app/login_script.py",
             "name": "AI 对话任务"
         },
         "pc_hang": {
-            "script": os.path.join(APP_DIR, "pc_login.py"),
+            "script": "/app/pc_login.py",
             "name": "挂机任务"
         },
         "combined": {
-            "script": os.path.join(APP_DIR, "combined_task.py"),
+            "script": "/app/combined_task.py",
             "name": "合并任务(AI对话+挂机)"
         },
         "redeem": {
-            "script": os.path.join(APP_DIR, "pc_login.py"),
+            "script": "/app/pc_login.py",
             "args": ["--redeem-now"],
             "name": "手动兑换"
         },
         "redeem_config": {
-            "script": os.path.join(APP_DIR, "pc_login.py"),
+            "script": "/app/pc_login.py",
             "args": ["--config-redeem"],
             "name": "积分兑换配置"
         },
         "logout": {
-            "script": os.path.join(APP_DIR, "login_script.py"),
+            "script": "/app/login_script.py",
             "args": ["--logout"],
             "name": "安全退出登录"
         },
         "login": {
-            "script": os.path.join(APP_DIR, "pc_login.py"),
+            "script": "/app/pc_login.py",
             "args": ["--fetch-rewards"],
             "name": "账号登录并抓取积分"
         }
@@ -1240,9 +1388,7 @@ def execute_task(task_type: str, params: dict = None) -> dict:
                 task_env.setdefault("APP_USER", settings["username"])
             if settings.get("password"):
                 task_env.setdefault("APP_PASSWORD", settings["password"])
-            # 桌面版适配：不再伪标 RUNNING_IN_DOCKER（Windows 下脚本会据此误入 Docker 分支；
-            # 路径已由 paths 模块统一，无需该标记）
-            task_env.pop("RUNNING_IN_DOCKER", None)
+            task_env["RUNNING_IN_DOCKER"] = "true"
             task_env["SETTINGS_FILE"] = SETTINGS_FILE
         except Exception:
             pass
@@ -1274,15 +1420,12 @@ def execute_task(task_type: str, params: dict = None) -> dict:
             stdout=stdout_target,
             stderr=stderr_target,
             env=task_env,
-            # 桌面版适配：Linux start_new_session 改为 Windows 兼容的 DETACHED_PROCESS，
-            # 目的相同——子任务不随控制台退出/CTRL_C 被连带终止
-            creationflags=(subprocess.DETACHED_PROCESS if os.name == "nt" else 0),
-            start_new_session=(os.name != "nt"),
+            start_new_session=True
         )
         # 挂机/合并任务启动前清空旧的自动兑换结果文件，避免挂机完成通知附加过期兑换信息
         if task_type in ("pc_hang", "combined"):
             try:
-                with open(tmp_path("ctyun_redeem_auto"), "w", encoding="utf-8") as f:
+                with open("/tmp/ctyun_redeem_auto", "w", encoding="utf-8") as f:
                     f.write("")
             except Exception:
                 pass
@@ -1331,7 +1474,7 @@ def execute_task(task_type: str, params: dict = None) -> dict:
 
 def trigger_rewards_fetch() -> dict:
     """Launch pc_login.py --fetch-rewards in background to refresh rewards.json."""
-    script = os.path.join(APP_DIR, "pc_login.py")
+    script = "/app/pc_login.py"
     if not os.path.exists(script):
         return {"success": False, "error": f"脚本不存在: {script}"}
     try:
@@ -1342,8 +1485,7 @@ def trigger_rewards_fetch() -> dict:
                 fetch_env.setdefault("APP_USER", settings["username"])
             if settings.get("password"):
                 fetch_env.setdefault("APP_PASSWORD", settings["password"])
-            # 桌面版适配：同 execute_task，不再伪标 RUNNING_IN_DOCKER
-            fetch_env.pop("RUNNING_IN_DOCKER", None)
+            fetch_env["RUNNING_IN_DOCKER"] = "true"
             fetch_env["SETTINGS_FILE"] = SETTINGS_FILE
         except Exception:
             pass
@@ -1352,9 +1494,7 @@ def trigger_rewards_fetch() -> dict:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             env=fetch_env,
-            # 桌面版适配：同 execute_task，Windows 用 DETACHED_PROCESS 替代 start_new_session
-            creationflags=(subprocess.DETACHED_PROCESS if os.name == "nt" else 0),
-            start_new_session=(os.name != "nt"),
+            start_new_session=True,
         )
         log_event("redeem", "已触发抓取可兑换物品")
         return {"success": True, "message": "正在后台抓取可兑换物品，请稍候刷新"}
@@ -1454,6 +1594,131 @@ def create_flask_app():
         resp.headers["Expires"] = "0"
         return resp
 
+    # ============================================
+    # 面板访问鉴权（2026-09-06 新增）
+    # 桌面版（CTYUN_DESKTOP=1）不走此处拦截，全部放行
+    # ============================================
+    @app.before_request
+    def _panel_auth_gate():
+        p = request.path or "/"
+        # 静态资源与鉴权端点本身放行（登录页需要加载 CSS/JS）
+        for pub in AUTH_PUBLIC_PATHS:
+            if p == pub or (pub.endswith("/") and p.startswith(pub)):
+                return None
+        # 未启用面板密码 → 放行（含桌面版）
+        if not _panel_auth_required():
+            return None
+        # 已启用 → 校验 token
+        if _check_request_auth(request):
+            return None
+        # API 请求返回 401 JSON；页面请求重定向到首页（前端登录页自己接管展示）
+        if p.startswith("/api/"):
+            return jsonify({"success": False, "error": "未登录或登录已过期", "auth_required": True}), 401
+        return index()
+
+    # ---- Panel auth API（登录端点自身不受鉴权拦截，见 AUTH_PUBLIC_PATHS）----
+    @app.route("/api/auth/check")
+    def api_auth_check():
+        """前端进入面板前调用：判断是否需要登录。
+        2026-09-07 默认账号模式：Docker 版恒需登录（enabled 恒 True），
+        初始化流程已移除，initialized 字段仅为兼容旧前端保留恒 True。"""
+        if _is_desktop_mode():
+            return jsonify({"auth_required": False, "desktop_mode": True, "initialized": True, "authenticated": True})
+        pa = _load_panel_auth()
+        return jsonify({
+            "auth_required": bool(pa.get("enabled", True)),
+            "desktop_mode": False,
+            "initialized": True,
+            "username": str(pa.get("username", "") or DEFAULT_PANEL_USER),
+            "authenticated": _check_request_auth(request),
+        })
+
+    @app.route("/api/auth/login", methods=["POST"])
+    def api_auth_login():
+        """面板登录（用户名+密码），成功返回 token（前端存 localStorage）。
+        2026-09-07 默认账号模式：新增用户名参数与校验（默认 admin/admin）。"""
+        pa = _load_panel_auth()
+        data = request.json or {}
+        username = str(data.get("username") or "").strip()
+        password = str(data.get("password") or "")
+        if not username or not password:
+            return jsonify({"success": False, "error": "请输入用户名和密码"}), 400
+        # 用户名不匹配按同一错误返回（不提示具体哪个错，避免探测枚举用户名）
+        if username != str(pa.get("username", "") or DEFAULT_PANEL_USER) or not _verify_password(password, pa):
+            # 简单防爆破：固定小幅延迟
+            time.sleep(0.6)
+            log_event("system", f"面板登录失败（{username}）")
+            return jsonify({"success": False, "error": "用户名或密码错误"}), 401
+        token = _get_or_create_token()
+        log_event("system", f"面板登录成功（{username}）")
+        return jsonify({"success": True, "token": token, "username": username})
+
+    # ---- 面板鉴权管理端点（不在 AUTH_PUBLIC_PATHS 中，受 token 保护）----
+    @app.route("/api/auth/change-password", methods=["POST"])
+    def api_auth_change_password():
+        """修改面板用户名/密码（需携带当前有效 token，且需验证旧密码）。
+        2026-09-07 默认账号模式：支持同时修改用户名（username 可选参数）。"""
+        if _is_desktop_mode():
+            return jsonify({"success": False, "error": "桌面版无需设置面板密码"}), 400
+        pa = _load_panel_auth()
+        data = request.json or {}
+        old_password = str(data.get("old_password") or "")
+        new_password = str(data.get("new_password") or "").strip()
+        new_username = str(data.get("username") or "").strip()
+        if not _verify_password(old_password, pa):
+            return jsonify({"success": False, "error": "旧密码错误"}), 401
+        if new_password and len(new_password) < 4:
+            return jsonify({"success": False, "error": "新密码至少 4 位"}), 400
+        if not new_password and not new_username:
+            return jsonify({"success": False, "error": "请输入新用户名或新密码"}), 400
+        # 用户名合法性：限字母数字下划线，长度 2-32（留空表示不修改用户名）
+        if new_username:
+            import re as _re
+            if not _re.fullmatch(r"[A-Za-z0-9_]{2,32}", new_username):
+                return jsonify({"success": False, "error": "用户名限 2-32 位字母/数字/下划线"}), 400
+            pa["username"] = new_username
+        if new_password:
+            salt = secrets.token_hex(16)
+            pa["salt"] = salt
+            pa["password_hash"] = _hash_password(new_password, salt)
+        pa["enabled"] = True
+        if not _save_panel_auth(pa):
+            return jsonify({"success": False, "error": "保存面板配置失败"}), 500
+        log_event("system", "面板账号设置已修改")
+        return jsonify({"success": True, "username": str(pa.get("username", "") or DEFAULT_PANEL_USER), "message": "面板账号设置已修改"})
+
+    @app.route("/api/auth/toggle", methods=["POST"])
+    def api_auth_toggle():
+        """开关面板登录保护。
+        2026-09-07 默认账号模式：关闭后任何人可直接访问（局域网调试用），
+        开启无需预设密码（默认账号已惰性存在）。"""
+        if _is_desktop_mode():
+            return jsonify({"success": False, "error": "桌面版无需设置面板密码"}), 400
+        data = request.json or {}
+        enable = bool(data.get("enabled"))
+        pa = _load_panel_auth()
+        pa["enabled"] = enable
+        if not _save_panel_auth(pa):
+            return jsonify({"success": False, "error": "保存面板配置失败"}), 500
+        log_event("system", f"面板登录保护已{'开启' if enable else '关闭'}")
+        return jsonify({"success": True, "enabled": enable,
+                        "message": f"面板登录保护已{'开启' if enable else '关闭'}"})
+
+    @app.route("/api/auth/status")
+    def api_auth_status():
+        """（受保护）返回当前面板鉴权配置状态，供设置页展示（不含敏感信息）。
+        2026-09-07 默认账号模式：补充 username 供设置页回显。"""
+        if _is_desktop_mode():
+            return jsonify({"desktop_mode": True, "available": False, "enabled": False, "initialized": True})
+        pa = _load_panel_auth()
+        return jsonify({
+            "desktop_mode": False,
+            "available": True,
+            "enabled": bool(pa.get("enabled")),
+            "initialized": True,
+            "username": str(pa.get("username", "") or DEFAULT_PANEL_USER),
+        })
+
     # API: Get status
     @app.route("/api/status")
     def api_status():
@@ -1502,10 +1767,9 @@ def create_flask_app():
         os.environ["APP_PASSWORD"] = settings["password"]
 
         # Update /etc/environment
-        # 桌面版适配：Windows 无 /etc/environment，仅 Linux 且文件存在时才写（保留容器兼容）
         try:
             env_file = "/etc/environment"
-            if os.name != "nt" and os.path.exists(env_file):
+            if os.path.exists(env_file):
                 content = ""
                 with open(env_file, "r") as f:
                     content = f.read()
@@ -1584,8 +1848,11 @@ def create_flask_app():
         username = settings.get("username", "") or os.environ.get("APP_USER", "")
         if not username:
             return jsonify({"success": False, "error": "未找到账号，请先保存账号设置"}), 400
-        # 桌面版适配：验证码交接文件改存公共临时目录（原 /tmp，与 pc_login 读取处保持一致）
-        sms_file = tmp_path(f"ctyun_sms_code_{username}")
+        # 修复（2026-09-06）：验证码文件路径原硬编码 /tmp，桌面版（Windows）下
+        # 不存在 /tmp 且与 pc_login.py 的读取路径不一致。改为统一走
+        # _sms_code_file_for(username)：Docker 用 /tmp，桌面版用数据目录 .tmp，
+        # 两端脚本（pc_login.py）同步使用同一函数规则，保证读写路径一致。
+        sms_file = _sms_code_file_for(username)
         try:
             with open(sms_file, "w", encoding="utf-8") as f:
                 f.write(code)
@@ -2192,7 +2459,46 @@ def notify_event(event_key, title, text, smtp=None):
 # ============================================
 if not HAS_FLASK:
     class FallbackHandler(BaseHTTPRequestHandler):
+        def _auth_gate(self) -> bool:
+            """鉴权网关（与 Flask before_request 对齐，2026-09-06 新增）：
+            返回 True 表示已放行/无需鉴权；False 表示已发送 401/页面响应，调用方直接 return。
+            桌面版（CTYUN_DESKTOP=1）与未启用面板密码时全部放行。"""
+            p = urlparse(self.path).path
+            for pub in AUTH_PUBLIC_PATHS:
+                if p == pub or (pub.endswith("/") and p.startswith(pub)):
+                    return True
+            if not _panel_auth_required():
+                return True
+            if _check_request_auth(self):
+                return True
+            if p.startswith("/api/"):
+                body = json.dumps({"success": False, "error": "未登录或登录已过期", "auth_required": True},
+                                  ensure_ascii=False).encode("utf-8")
+                self.send_response(401)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                # 页面请求：直接回首页 HTML（前端登录页自行接管）
+                idx = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                   "web", "templates", "index.html")
+                try:
+                    with open(idx, "rb") as f:
+                        html = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(html)))
+                    self.end_headers()
+                    self.wfile.write(html)
+                except Exception:
+                    self.send_error(500)
+            return False
+
         def do_GET(self):
+            # 鉴权网关：未通过时已在 _auth_gate 内发送响应
+            if not self._auth_gate():
+                return
             path = urlparse(self.path).path
             # Project root is parent of web_server dir
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -2211,6 +2517,34 @@ if not HAS_FLASK:
                 file_path = os.path.join(project_root, "web", "static", rel)
             elif path == "/api/status":
                 self.send_json_response(get_system_status())
+                return
+            # ---- 面板鉴权 API（fallback 版，与 Flask 版逻辑一致）----
+            elif path == "/api/auth/check":
+                if _is_desktop_mode():
+                    self.send_json_response({"auth_required": False, "desktop_mode": True, "initialized": True, "authenticated": True})
+                else:
+                    # 2026-09-07 默认账号模式：Docker 版恒需登录，无 setup 流程
+                    pa = _load_panel_auth()
+                    self.send_json_response({
+                        "auth_required": bool(pa.get("enabled", True)),
+                        "desktop_mode": False,
+                        "initialized": True,
+                        "username": str(pa.get("username", "") or DEFAULT_PANEL_USER),
+                        "authenticated": _check_request_auth(self),
+                    })
+                return
+            elif path == "/api/auth/status":
+                if _is_desktop_mode():
+                    self.send_json_response({"desktop_mode": True, "available": False, "enabled": False, "initialized": True})
+                else:
+                    pa = _load_panel_auth()
+                    self.send_json_response({
+                        "desktop_mode": False,
+                        "available": True,
+                        "enabled": bool(pa.get("enabled")),
+                        "initialized": True,
+                        "username": str(pa.get("username", "") or DEFAULT_PANEL_USER),
+                    })
                 return
             elif path == "/api/settings":
                 settings = load_settings()
@@ -2279,6 +2613,9 @@ if not HAS_FLASK:
                 self.send_error(404, "File Not Found")
 
         def do_POST(self):
+            # 鉴权网关：未通过时已在 _auth_gate 内发送响应（401）
+            if not self._auth_gate():
+                return
             path = urlparse(self.path).path
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length) if content_length > 0 else b"{}"
@@ -2287,7 +2624,77 @@ if not HAS_FLASK:
             except json.JSONDecodeError:
                 data = {}
 
-            if path == "/api/settings":
+            # ---- 面板鉴权 API（fallback 版，与 Flask 版逻辑一致）----
+            # 2026-09-07 默认账号模式：移除 /api/auth/setup（默认账号惰性初始化，
+            # 无需 setup 流程）；login 支持用户名+密码。
+            if path == "/api/auth/login":
+                pa = _load_panel_auth()
+                username = str(data.get("username") or "").strip()
+                password = str(data.get("password") or "")
+                if not username or not password:
+                    self.send_json_response({"success": False, "error": "请输入用户名和密码"}, 400)
+                    return
+                # 用户名不匹配与密码错误同一提示，避免探测枚举用户名
+                if username != str(pa.get("username", "") or DEFAULT_PANEL_USER) or not _verify_password(password, pa):
+                    time.sleep(0.6)
+                    log_event("system", f"面板登录失败（{username}）")
+                    self.send_json_response({"success": False, "error": "用户名或密码错误"}, 401)
+                    return
+                token = _get_or_create_token()
+                log_event("system", f"面板登录成功（{username}）")
+                self.send_json_response({"success": True, "token": token, "username": username})
+
+            elif path == "/api/auth/change-password":
+                if _is_desktop_mode():
+                    self.send_json_response({"success": False, "error": "桌面版无需设置面板密码"}, 400)
+                    return
+                pa = _load_panel_auth()
+                old_password = str(data.get("old_password") or "")
+                new_password = str(data.get("new_password") or "").strip()
+                new_username = str(data.get("username") or "").strip()
+                if not _verify_password(old_password, pa):
+                    self.send_json_response({"success": False, "error": "旧密码错误"}, 401)
+                    return
+                if new_password and len(new_password) < 4:
+                    self.send_json_response({"success": False, "error": "新密码至少 4 位"}, 400)
+                    return
+                if not new_password and not new_username:
+                    self.send_json_response({"success": False, "error": "请输入新用户名或新密码"}, 400)
+                    return
+                # 用户名合法性：限字母数字下划线，长度 2-32（留空表示不修改用户名）
+                if new_username:
+                    import re as _re
+                    if not _re.fullmatch(r"[A-Za-z0-9_]{2,32}", new_username):
+                        self.send_json_response({"success": False, "error": "用户名限 2-32 位字母/数字/下划线"}, 400)
+                        return
+                    pa["username"] = new_username
+                if new_password:
+                    salt = secrets.token_hex(16)
+                    pa["salt"] = salt
+                    pa["password_hash"] = _hash_password(new_password, salt)
+                pa["enabled"] = True
+                if not _save_panel_auth(pa):
+                    self.send_json_response({"success": False, "error": "保存面板配置失败"}, 500)
+                    return
+                log_event("system", "面板账号设置已修改")
+                self.send_json_response({"success": True, "username": str(pa.get("username", "") or DEFAULT_PANEL_USER), "message": "面板账号设置已修改"})
+
+            elif path == "/api/auth/toggle":
+                if _is_desktop_mode():
+                    self.send_json_response({"success": False, "error": "桌面版无需设置面板密码"}, 400)
+                    return
+                enable = bool(data.get("enabled"))
+                pa = _load_panel_auth()
+                # 2026-09-07 默认账号模式：无需预设密码即可开启（默认账号已惰性存在）
+                pa["enabled"] = enable
+                if not _save_panel_auth(pa):
+                    self.send_json_response({"success": False, "error": "保存面板配置失败"}, 500)
+                    return
+                log_event("system", f"面板登录保护已{'开启' if enable else '关闭'}")
+                self.send_json_response({"success": True, "enabled": enable,
+                                         "message": f"面板登录保护已{'开启' if enable else '关闭'}"})
+
+            elif path == "/api/settings":
                 # 修复：读-改-写套进程锁（与 Flask 版 api_save_settings 一致）
                 with _SETTINGS_LOCK:
                     settings = load_settings()
@@ -2405,6 +2812,28 @@ if not HAS_FLASK:
             elif path == "/api/redeem/disable":
                 save_redeem_config({"enabled": False})
                 self.send_json_response({"success": True, "message": "自动兑换已禁用"})
+
+            # 修复（2026-09-06）：fallback 服务器此前缺少 /api/sms-code 端点，
+            # 无 Flask 环境下面板提交验证码直接 404。与 Flask 版对齐补齐，
+            # 路径统一走 _sms_code_file_for 保证与 pc_login.py 读写一致。
+            elif path == "/api/sms-code":
+                code = (data.get("code") or "").strip()
+                if not code:
+                    self.send_json_response({"success": False, "error": "验证码不能为空"}, 400)
+                    return
+                settings = load_settings()
+                username = settings.get("username", "") or os.environ.get("APP_USER", "")
+                if not username:
+                    self.send_json_response({"success": False, "error": "未找到账号，请先保存账号设置"}, 400)
+                    return
+                sms_file = _sms_code_file_for(username)
+                try:
+                    with open(sms_file, "w", encoding="utf-8") as f:
+                        f.write(code)
+                    log_event("system", f"已写入短信验证码文件: {sms_file}")
+                    self.send_json_response({"success": True, "message": "验证码已提交，登录将继续"})
+                except Exception as e:
+                    self.send_json_response({"success": False, "error": f"写入验证码失败: {e}"}, 500)
 
             elif path == "/api/task":
                 task_type = data.get("task", "")

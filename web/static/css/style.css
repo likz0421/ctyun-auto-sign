@@ -104,8 +104,8 @@ i.mdi svg { display: block; width: 1em; height: 1em; }
   --hairline: rgba(255, 255, 255, 0.08);
   --hairline-strong: rgba(255, 255, 255, 0.16);
   --text: #e9edf6;
-  --text-sec: #aab3c5;
-  --text-muted: #6b7488;
+  --text-sec: #b8c0d2; /* 修复暗夜主题辅助文字偏暗（2026-09-06）：#aab3c5 在半透明卡片上对比不足，提亮一档 */
+  --text-muted: #8d97ad; /* 修复暗夜主题说明文字偏暗（2026-09-06）：原 #6b7488 在暗色卡片上几乎不可读 */
   --accent: #5b9bff;
   --accent-hover: #7db0ff;
   --accent-soft: rgba(91, 155, 255, 0.16);
@@ -138,8 +138,8 @@ i.mdi svg { display: block; width: 1em; height: 1em; }
   --hairline: rgba(255, 255, 255, 0.08);
   --hairline-strong: rgba(255, 255, 255, 0.16);
   --text: #ece9f7;
-  --text-sec: #b9b2d4;
-  --text-muted: #756f90;
+  --text-sec: #c6bfe0; /* 修复暗紫主题辅助文字偏暗（2026-09-06）：同暗夜主题，提亮一档 */
+  --text-muted: #9791b4; /* 修复暗紫主题说明文字偏暗（2026-09-06）：原 #756f90 对比不足 */
   --accent: #b083ff;
   --accent-hover: #c4a0ff;
   --accent-soft: rgba(176, 131, 255, 0.18);
@@ -172,8 +172,8 @@ i.mdi svg { display: block; width: 1em; height: 1em; }
   --hairline: rgba(255, 255, 255, 0.08);
   --hairline-strong: rgba(255, 255, 255, 0.16);
   --text: #e4f5ec;
-  --text-sec: #a9c8ba;
-  --text-muted: #6a8a7c;
+  --text-sec: #bad6c8; /* 修复暗绿主题辅助文字偏暗（2026-09-06）：同上，提亮一档 */
+  --text-muted: #8ba79a; /* 修复暗绿主题说明文字偏暗（2026-09-06）：原 #6a8a7c 对比不足 */
   --accent: #34d399;
   --accent-hover: #5eeab0;
   --accent-soft: rgba(52, 211, 153, 0.16);
@@ -406,7 +406,9 @@ body.mode-3d.spotlight-anim::before { animation: none; }
 }
 .theme-preset:hover { border-color: var(--accent); }
 .theme-preset.active { border-color: var(--accent); box-shadow: var(--accent-glow); }
-.theme-preset .swatch { height: 34px; border-radius: 8px; display: flex; overflow: hidden; }
+/* 修复浅色主题下深色预设色板无边界（2026-09-06）：「暗夜/暗紫/暗绿」色板
+   在白色弹窗上与背景融在一起没有轮廓，加 hairline 边框保证两种主题下都有清晰边界 */
+.theme-preset .swatch { height: 34px; border-radius: 8px; display: flex; overflow: hidden; border: 1px solid var(--hairline-strong); }
 .theme-preset .swatch span { flex: 1; }
 .theme-preset .name { font-size: 12px; font-weight: 600; color: var(--text-sec); text-align: center; }
 
@@ -523,19 +525,26 @@ body::before {
 /* ============================================================
    毛玻璃工具类
    ============================================================ */
-/* 半透明白磨砂玻璃：浅底、强模糊、柔边，文字清晰可读 */
+/* 半透明白磨砂玻璃：浅底、强模糊、柔边，文字清晰可读
+   修复暗色主题白底白字（2026-09-06）：.glass 是全站卡片基类（stat-card/quick-actions/
+   settings-card 等都带 glass），原背景硬编码白色半透明，暗色主题下卡片文字（--text
+   已变白）落在白玻璃上几乎不可读——即"图标白色看不见"的主要根因。
+   改用 --surface（每套主题都有定义：浅色=白色玻璃、暗色=深色玻璃），深浅主题自动适配。 */
 .glass {
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--surface);
   -webkit-backdrop-filter: blur(26px) saturate(180%);
   backdrop-filter: blur(26px) saturate(180%);
-  border: 1px solid rgba(255,255,255,0.65);
+  border: 1px solid var(--hairline-strong);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.70), 0 10px 30px rgba(20,30,60,0.08);
 }
 .glass-strong {
-  background: rgba(255, 255, 255, 0.72);
+  /* 修复暗色主题白底白字（2026-09-06）：原硬编码白色玻璃背景在暗色主题下
+     （弹窗内文字用 --text 已变白）导致主题面板/兑换进度弹窗内容不可见。
+     改用主题变量，浅色仍为白玻璃，暗色自动变深色玻璃。 */
+  background: var(--surface-solid);
   -webkit-backdrop-filter: blur(32px) saturate(180%);
   backdrop-filter: blur(32px) saturate(180%);
-  border: 1px solid rgba(255,255,255,0.75);
+  border: 1px solid var(--hairline-strong);
 }
 
 /* ============================================================
@@ -548,17 +557,21 @@ body::before {
   pointer-events: none;
   will-change: transform;
 }
-/* 居中玻璃 dock 胶囊：所有 tab 等宽对齐、统一玻璃质感 */
+/* 居中玻璃 dock 胶囊：所有 tab 等宽对齐、统一玻璃质感
+   修复暗色主题白底白字（2026-09-06）：原背景硬编码 rgba(255,255,255,0.82)，
+   暗色主题下 --text 变白，白底+白字导致 dock 图标文字几乎不可见。
+   改用 --surface-solid / --hairline-strong 主题变量，浅色主题仍为白玻璃，
+   暗色主题自动切换为深色玻璃，图标文字始终可读。 */
 .dock {
   pointer-events: auto;
   display: flex; align-items: stretch; gap: 2px;
   padding: 6px;
   max-width: calc(100vw - 32px);
   border-radius: 20px;
-  background: rgba(255,255,255,0.82);
+  background: var(--surface-solid);
   -webkit-backdrop-filter: blur(28px) saturate(190%);
   backdrop-filter: blur(28px) saturate(190%);
-  border: 1px solid rgba(255,255,255,0.85);
+  border: 1px solid var(--hairline-strong);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.70), 0 12px 36px rgba(20,30,60,0.18);
 }
 .dock-item {
@@ -571,7 +584,10 @@ body::before {
 }
 .dock-item i.mdi { font-size: 21px; color: currentColor; }
 .dock-item span { line-height: 1.1; }
-.dock-item:hover { color: var(--text); background: rgba(20,30,60,0.05); }
+/* 修复暗色主题下 dock hover 态不可见（2026-09-06）：原 hover 背景
+   rgba(20,30,60,0.05) 深蓝灰在深色 dock 底上无差别，且暗色下文字已近白。
+   改用 --hairline 强调层次，语义不变（当前页仍由 .active 高亮标识）。 */
+.dock-item:hover { color: var(--text); background: var(--hairline); }
 .dock-item.active {
   background: var(--accent-soft); color: var(--accent); font-weight: 600;
   box-shadow: inset 0 0 0 1px rgba(74,158,255,0.30), 0 0 16px rgba(74,158,255,0.10);
@@ -843,7 +859,9 @@ body::before {
 .points-head-right { display: flex; align-items: center; gap: 8px; }
 .points-head-right .btn.btn-xs { padding: 3px 9px; border-radius: 8px; }
 .trend-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; margin-bottom: 10px; }
-.trend-sum-item { background: rgba(255,255,255,.62); border: 1px solid rgba(148,163,184,.18); border-radius: 10px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 1px 2px rgba(15,23,42,.03); }
+/* 修复暗色主题下积分趋势汇总项白底看不清（2026-09-06）：原硬编码白色半透明底，
+   暗色主题下浅色文字与白底对比不足且风格突兀，改用主题表面色变量。 */
+.trend-sum-item { background: var(--surface-2); border: 1px solid var(--hairline); border-radius: 10px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 1px 2px rgba(15,23,42,.03); }
 .trend-sum-item .k { font-size: 10px; color: var(--text-muted); }
 .trend-sum-item .v { font-size: 15px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.2; }
 .trend-sum-item .v.accent { color: var(--accent); }
@@ -864,7 +882,8 @@ body::before {
 .trend-detail { margin-top: 6px; }
 .trend-detail-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 5px; display: flex; align-items: center; gap: 6px; }
 .trend-detail-title i.mdi { color: var(--accent); font-size: 14px; }
-.trend-list { max-height: 210px; overflow-y: auto; border-radius: 10px; border: 1px solid rgba(148,163,184,.16); background: rgba(255,255,255,.45); }
+/* 修复暗色主题下趋势列表白底问题（2026-09-06）：同上，改用主题变量 */
+.trend-list { max-height: 210px; overflow-y: auto; border-radius: 10px; border: 1px solid var(--hairline); background: var(--surface-2); }
 .trend-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 11px; font-size: 12px; color: var(--text-sec); border-bottom: 1px solid rgba(148,163,184,.12); }
 .trend-item:last-child { border-bottom: none; }
 .trend-item .t { color: var(--text-muted); font-variant-numeric: tabular-nums; }
@@ -908,7 +927,8 @@ body::before {
 }
 .card-header h3 { font-size: 15px; font-weight: 600; letter-spacing: 0; display: flex; align-items: center; }
 .header-actions { display: flex; gap: 8px; align-items: center; }
-.points-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-sec); background: rgba(255,255,255,0.60); border: 1px solid var(--hairline); border-radius: 999px; padding: 4px 12px; }
+/* 修复暗色主题下积分徽章白底问题（2026-09-06）：同上，改用主题变量 */
+.points-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-sec); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: 999px; padding: 4px 12px; }
 .points-badge i.mdi { color: #ffcf5c; font-size: 14px; }
 .points-badge b { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
 .card-body { padding: 18px; }
@@ -1155,6 +1175,16 @@ textarea.form-control { resize: vertical; min-height: 70px; line-height: 1.6; }
 .modal-box .modal-body { padding: 12px 20px 18px; color: var(--text-sec); font-size: 14px; line-height: 1.6; }
 .modal-box .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 0 20px 18px; }
 
+/* 修改面板账号弹窗（2026-09-07）：错误提示行 + 密码可见切换按钮 */
+.modal-error { min-height: 18px; font-size: 12.5px; color: var(--red); margin-top: 4px; }
+.pwd-eye-btn {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; padding: 4px;
+  color: var(--text-muted); display: inline-flex; border-radius: 6px;
+  transition: color 0.15s var(--ease);
+}
+.pwd-eye-btn:hover { color: var(--text); }
+
 /* 账号登录状态徽章 */
 .login-state-badge {
   font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 999px;
@@ -1162,6 +1192,53 @@ textarea.form-control { resize: vertical; min-height: 70px; line-height: 1.6; }
 }
 .login-state-badge.state-on { color: var(--green); background: var(--green-soft); border-color: rgba(76,200,106,0.3); }
 .login-state-badge.state-warn { color: var(--amber); background: var(--amber-soft); border-color: rgba(232,193,74,0.3); }
+
+/* ============================================================
+   面板登录遮罩（2026-09-06 新增）
+   Docker 版启用面板密码后，未登录时全屏遮罩展示登录/初始化表单；
+   桌面版由 /api/auth/check 判定后从不展示此层。
+   ============================================================ */
+.panel-auth-overlay {
+  position: fixed; inset: 0; z-index: 3000;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: var(--bg);
+  /* 背景加轻微渐变光斑，与面板整体风格一致 */
+  background-image: radial-gradient(1200px 600px at 20% 0%, var(--accent-soft, rgba(47,123,255,0.08)), transparent 60%),
+                    radial-gradient(900px 500px at 90% 100%, var(--accent-soft, rgba(47,123,255,0.06)), transparent 55%);
+}
+.panel-auth-box {
+  width: 100%; max-width: 380px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--hairline-strong);
+  box-shadow: var(--shadow-modal);
+  padding: 34px 30px 28px;
+  background: var(--surface-solid, var(--bg-elev));
+  animation: modal-in 0.4s var(--ease);
+}
+.panel-auth-head { text-align: center; margin-bottom: 22px; }
+.panel-auth-logo {
+  width: 64px; height: 64px; margin: 0 auto 14px;
+  border-radius: 18px; display: flex; align-items: center; justify-content: center;
+  background: var(--accent-soft, rgba(47,123,255,0.12)); color: var(--accent);
+}
+.panel-auth-logo i.mdi { font-size: 34px; }
+.panel-auth-title { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: 0.5px; }
+.panel-auth-sub { font-size: 13px; color: var(--text-muted); margin-top: 6px; }
+.panel-auth-form { display: flex; flex-direction: column; gap: 12px; }
+.panel-auth-form .form-control { width: 100%; text-align: center; letter-spacing: 1px; }
+.panel-auth-form .btn { width: 100%; margin-top: 4px; }
+.panel-auth-error {
+  min-height: 18px; margin-top: 12px; text-align: center;
+  font-size: 12.5px; color: var(--red);
+}
+.panel-auth-error:empty { margin-top: 0; }
+
+/* 短信验证码输入弹窗（2026-09-06 新增，替代原生 prompt） */
+.sms-modal-code {
+  font-size: 22px; letter-spacing: 10px; text-align: center;
+  font-weight: 600; font-family: var(--mono, monospace);
+}
+.sms-modal-hint { font-size: 12.5px; color: var(--text-muted); margin-top: 6px; }
 .login-state-badge.state-off { color: var(--text-muted); background: rgba(20,30,60,0.05); }
 
 .redeem-progress-status { font-size: 13px; font-weight: 500; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }

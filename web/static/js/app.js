@@ -28,8 +28,106 @@ const API = {
     pointsHistory: '/api/points-history',
     webSettings: '/api/web-settings',
     testNotify: '/api/test-notify',
-    pendingNotifies: '/api/pending-notifies'
+    pendingNotifies: '/api/pending-notifies',
+    // 面板访问鉴权（2026-09-07 默认账号模式）
+    authCheck: '/api/auth/check',
+    authLogin: '/api/auth/login',
+    authChangePassword: '/api/auth/change-password',
+    authToggle: '/api/auth/toggle',
+    authStatus: '/api/auth/status'
 };
+
+// ============================================
+// 面板访问鉴权（2026-09-07 默认账号模式）
+// token 存 localStorage，随 X-Auth-Token 头提交；401 时清除并弹回登录页
+// 默认账号 admin/admin，登录后在设置页修改用户名/密码
+// ============================================
+const AUTH_TOKEN_KEY = 'ctyun_panel_token';
+function getPanelToken() { return localStorage.getItem(AUTH_TOKEN_KEY) || ''; }
+function setPanelToken(tok) {
+    if (tok) localStorage.setItem(AUTH_TOKEN_KEY, tok);
+    else localStorage.removeItem(AUTH_TOKEN_KEY);
+}
+// 桌面版标记：/api/auth/check 返回 desktop_mode=true 后置位，
+// 面板安全卡、相关提示均按"无需登录"处理
+let PANEL_DESKTOP_MODE = false;
+
+// 进入主界面（隐藏登录遮罩、启动数据加载）
+function enterPanel() {
+    const overlay = document.getElementById('panelAuthOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+        overlay.classList.remove('show');
+    }
+    // 主界面数据加载：原 DOMContentLoaded 逻辑在未登录时也会跑，
+    // 登录成功后这里补一次完整加载
+    refreshStatus();
+    loadAccountSettings();
+    loadNotifySettings();
+    loadCronSettings();
+    loadRedeemConfig();
+    loadCachedRewards();
+    loadPanelAuthSettings();
+}
+
+// 面板鉴权初始化：判断是否需要登录
+// 2026-09-07 默认账号模式：去掉初始化表单分支（后端已内置 admin/admin）
+async function initPanelAuth() {
+    const overlay = document.getElementById('panelAuthOverlay');
+    const sub = document.getElementById('panelAuthSub');
+    const loginForm = document.getElementById('panelAuthLoginForm');
+    const errEl = document.getElementById('panelAuthError');
+    let check;
+    try {
+        check = await apiRequest(API.authCheck);
+    } catch (e) {
+        // 检查失败（后端未就绪）：短暂延迟重试一次，仍失败则放行主界面由轮询报错
+        await new Promise(r => setTimeout(r, 1200));
+        try { check = await apiRequest(API.authCheck); } catch (e2) { return; }
+    }
+    PANEL_DESKTOP_MODE = !!check.desktop_mode;
+    if (!check.auth_required || check.authenticated) {
+        // 无需登录：直接进入（遮罩保持隐藏）
+        return;
+    }
+    // 需要登录：展示遮罩（防闪烁：数据加载由 enterPanel 登录后再触发）
+    if (overlay) {
+        overlay.style.display = 'flex';
+        requestAnimationFrame(() => overlay.classList.add('show'));
+    }
+    if (sub) sub.textContent = '请输入面板账号密码继续（默认 admin / admin）';
+    if (loginForm) loginForm.style.display = 'flex';
+    const first = document.getElementById('panelAuthUser');
+    if (first) setTimeout(() => first.focus(), 200);
+    if (errEl) errEl.textContent = '';
+}
+
+// 面板登录表单提交（用户名+密码，默认 admin/admin）
+async function handlePanelAuthLogin(e) {
+    e.preventDefault();
+    const userEl = document.getElementById('panelAuthUser');
+    const pwdEl = document.getElementById('panelAuthPwd');
+    const btn = document.getElementById('panelAuthLoginBtn');
+    const errEl = document.getElementById('panelAuthError');
+    const username = (userEl.value || '').trim();
+    const pwd = (pwdEl.value || '').trim();
+    if (!username || !pwd) { if (errEl) errEl.textContent = '请输入用户名和密码'; return; }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> 验证中…';
+    try {
+        const r = await apiRequest(API.authLogin, 'POST', { username: username, password: pwd });
+        setPanelToken(r.token || '');
+        showToast('面板登录成功', 'success');
+        enterPanel();
+    } catch (error) {
+        if (errEl) errEl.textContent = error.message || '登录失败';
+        pwdEl.value = '';
+        pwdEl.focus();
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '进入控制台';
+    }
+}
 
 // Current state
 let currentLogType = 'all';
@@ -624,6 +722,125 @@ function onNotifyTypeChange(silent) {
     if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
   }
 }
+
+// ============================================
+// 面板安全设置（2026-09-07 默认账号模式）
+// 设置页「面板安全」卡片：开关/改用户名+密码/退出登录
+// ============================================
+async function loadPanelAuthSettings() {
+  const card = document.getElementById('panelAuthCard');
+  try {
+    const st = await apiRequest(API.authStatus);
+    window._panelAuthStatus = st;  // 缓存状态供弹窗回显当前用户名
+    // 桌面版无需面板密码功能：整卡隐藏
+    if (card) card.style.display = st.available ? '' : 'none';
+    if (!st.available) return;
+    setChecked('panelAuthEnabled', !!st.enabled);
+    // 默认账号模式：登录保护可随时开关（默认账号已内置）
+    const sw = document.getElementById('panelAuthEnabled');
+    if (sw) sw.disabled = false;
+    // 卡片内只读框回显当前用户名
+    const userEl = document.getElementById('panelAuthNewUser');
+    if (userEl && st.username) userEl.value = st.username;
+  } catch (e) { /* 静默：未启用鉴权时该接口仍可用 */ }
+}
+
+// 开关面板登录保护（change 事件）
+async function togglePanelAuth() {
+  const sw = document.getElementById('panelAuthEnabled');
+  const enable = sw.checked;
+  if (!enable && !(await showConfirm('关闭后任何人都可直接访问面板，确定关闭登录保护？', { title: '关闭面板登录保护', confirmText: '关闭', danger: true }))) {
+    // 取消：回滚开关状态
+    sw.checked = true;
+    return;
+  }
+  try {
+    const r = await apiRequest(API.authToggle, 'POST', { enabled: enable });
+    showToast(r.message || '已更新', 'success');
+  } catch (e) {
+    showToast(e.message, 'error');
+    sw.checked = !enable;
+  }
+}
+
+// 修改面板账号（2026-09-07 交互升级）：设置页卡片内只留「修改账号」按钮，
+// 点击弹出毛玻璃模态窗填写旧密码/新用户名/新密码（带二次确认与可见切换）
+function openPanelAuthModal() {
+  const modal = document.getElementById('panelAuthModal');
+  if (!modal) return;
+  // 每次打开都是干净表单；回显当前用户名到新用户名占位符
+  const st = window._panelAuthStatus || {};
+  const nu = document.getElementById('modalNewUser');
+  if (nu) nu.placeholder = st.username ? ('留空不修改（当前：' + st.username + '）') : '字母/数字/下划线，2-32 位';
+  ['modalOldPwd', 'modalNewUser', 'modalNewPwd', 'modalNewPwd2'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const err = document.getElementById('panelAuthModalError');
+  if (err) err.textContent = '';
+  modal.style.display = 'flex';
+  requestAnimationFrame(() => modal.classList.add('show'));
+  setTimeout(() => document.getElementById('modalOldPwd')?.focus(), 200);
+}
+
+function closePanelAuthModal() {
+  const modal = document.getElementById('panelAuthModal');
+  if (!modal) return;
+  modal.classList.remove('show');
+  setTimeout(() => { modal.style.display = 'none'; }, 200);
+}
+
+// 弹窗内密码可见切换（两个眼睛按钮共用逻辑）
+function bindPwdEye(btnId, inputId) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.innerHTML = '<i class="mdi ' + (show ? 'mdi-eye-outline' : 'mdi-eye-off-outline') + '"></i>';
+  });
+}
+
+// 弹窗保存入口：前端预校验后提交
+async function submitPanelAuthModal() {
+  const oldPwd = document.getElementById('modalOldPwd').value;
+  const newUser = document.getElementById('modalNewUser').value.trim();
+  const newPwd = document.getElementById('modalNewPwd').value.trim();
+  const newPwd2 = document.getElementById('modalNewPwd2').value.trim();
+  const err = document.getElementById('panelAuthModalError');
+  const showErr = (m) => { if (err) err.textContent = m; };
+  showErr('');
+  if (!oldPwd) return showErr('请输入旧密码验证身份');
+  if (!newUser && !newPwd) return showErr('新用户名和新密码至少填写一项');
+  if (newUser && !/^[A-Za-z0-9_]{2,32}$/.test(newUser)) return showErr('新用户名需为 2-32 位字母/数字/下划线');
+  if (newPwd) {
+    if (newPwd.length < 4) return showErr('新密码至少 4 位');
+    if (newPwd !== newPwd2) return showErr('两次输入的新密码不一致');
+  }
+  const btn = document.getElementById('panelAuthModalSave');
+  const spinner = btn?.querySelector('.spinner');
+  btn.disabled = true;
+  if (spinner) spinner.style.display = '';
+  try {
+    const r = await apiRequest(API.authChangePassword, 'POST', { username: newUser, old_password: oldPwd, new_password: newPwd });
+    showToast(r.message || '面板账号设置已修改', 'success');
+    closePanelAuthModal();
+    // 卡片内只读框同步显示新用户名
+    const ro = document.getElementById('panelAuthNewUser');
+    if (ro) ro.value = r.username || window._panelAuthStatus?.username || '';
+  } catch (e) {
+    showErr(e.message || '保存失败');
+  } finally {
+    btn.disabled = false;
+    if (spinner) spinner.style.display = 'none';
+  }
+}
+
+// 退出面板登录（清除本地 token，重新弹回登录页）
+function panelAuthLogout() {
+  setPanelToken('');
+  showToast('已退出面板登录', 'info');
+  showPanelAuthOverlay();
+}
 function saveNotifySettings() {
   const events = [];
   if (document.getElementById('notifyHangStart').checked) events.push('hang_start');
@@ -814,7 +1031,7 @@ function navigateTo(page) {
 function showSettingsSub(sub) {
     document.querySelectorAll('#settingsSegment .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.sub === sub));
     document.querySelectorAll('.sub-page').forEach(s => s.classList.toggle('active', s.id === `sub-${sub}`));
-    if (sub === 'account') { loadAccountSettings(); loadDeviceConfig(); }
+    if (sub === 'account') { loadAccountSettings(); loadDeviceConfig(); loadPanelAuthSettings(); }
     if (sub === 'automation') loadCronSettings();
 }
 
@@ -889,16 +1106,46 @@ async function apiRequest(url, method = 'GET', body = null) {
             method: method,
             headers: { 'Content-Type': 'application/json' }
         };
+        // 面板鉴权（2026-09-06 新增）：携带访问 token（启用面板密码后必需）
+        const tok = getPanelToken();
+        if (tok) options.headers['X-Auth-Token'] = tok;
         if (body) options.body = JSON.stringify(body);
         const response = await fetch(url, options);
         const data = await response.json();
         if (!response.ok) {
+            // 401 = 面板登录过期/无效：清除本地 token 并弹回登录遮罩
+            // （排除鉴权接口本身：登录失败提示由表单内展示，不重复跳转）
+            if (response.status === 401 && data.auth_required && !url.startsWith('/api/auth/')) {
+                setPanelToken('');
+                showPanelAuthOverlay();
+            }
             throw new Error(data.error || `请求失败 (${response.status})`);
         }
         return data;
     } catch (error) {
         throw new Error(error.message || '网络请求失败');
     }
+}
+
+// 弹回面板登录遮罩（token 失效时由 apiRequest 调用）
+// 2026-09-07 默认账号模式：移除 setup 表单引用
+function showPanelAuthOverlay() {
+    const overlay = document.getElementById('panelAuthOverlay');
+    if (!overlay) return;
+    // 幂等保护（2026-09-07）：遮罩已展示时直接返回。未登录期间后台轮询
+    // 每 30 秒触发 401 都会调到这里，若重复重置会清掉登录表单刚显示的
+    // 「用户名或密码错误」提示，用户看不到报错原因。
+    if (overlay.style.display === 'flex' && overlay.classList.contains('show')) return;
+    const sub = document.getElementById('panelAuthSub');
+    const loginForm = document.getElementById('panelAuthLoginForm');
+    const errEl = document.getElementById('panelAuthError');
+    if (sub) sub.textContent = '登录已过期，请重新输入面板账号密码';
+    if (loginForm) loginForm.style.display = 'flex';
+    if (errEl) errEl.textContent = '';
+    overlay.style.display = 'flex';
+    requestAnimationFrame(() => overlay.classList.add('show'));
+    const first = document.getElementById('panelAuthUser');
+    if (first) setTimeout(() => first.focus(), 200);
 }
 
 // ============================================
@@ -918,6 +1165,10 @@ async function refreshStatus() {
         pollNotifyQueue();
     } catch (error) {
         _statusFailCount++;
+        // 401（未登录/token 失效）不在这里弹回登录遮罩：那是 initPanelAuth
+        // 的职责；且未登录时每 30 秒轮询都会 401，若在此弹回会覆盖
+        // 登录表单的「用户名或密码错误」提示，导致看不到报错原因。
+        if (!/未登录或登录已过期/.test(error.message)) {
         // 连续失败时降频提示：首败静默（可能是瞬时网络抖动），
         // 之后每 3 次失败（约 90 秒）提示一次
         if (_statusFailCount === 2 || (_statusFailCount > 2 && Date.now() - _lastStatusFailToastTs > 90000)) {
@@ -928,6 +1179,7 @@ async function refreshStatus() {
         if (el) el.textContent = '连接失败';
         const dotWrap = document.getElementById('statusDotWrap');
         if (dotWrap) dotWrap.className = 'status-dot-wrap offline';
+        }
     }
 }
 
@@ -1349,13 +1601,25 @@ function drawPointsTrend() {
 }
 
 // 下载日志
-function downloadLogs() {
-    const a = document.createElement('a');
-    a.href = API.logsDownload;
-    a.download = 'ctyun_logs.txt';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+// 修复（2026-09-06）：启用面板密码后直接 <a href> 下载不带 token 会被 401 拦截，
+// 改为 fetch 带 token 取回文本后本地保存（沿用后端给的文件名）。
+async function downloadLogs() {
+    try {
+        const tok = getPanelToken();
+        const headers = tok ? { 'X-Auth-Token': tok } : {};
+        const resp = await fetch(API.logsDownload, { headers });
+        if (!resp.ok) throw new Error(`下载失败 (${resp.status})`);
+        const blob = await resp.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'ctyun_logs.txt';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } catch (e) {
+        showToast(e.message || '日志下载失败', 'error');
+    }
 }
 
 // 重启容器（Web 服务）
@@ -1549,18 +1813,37 @@ async function pollLoginProgress(btn) {
     let done = false;
     let attempts = 0;
     _loginPollTimer = setInterval(async () => {
-        if (done || attempts >= 60) { clearInterval(_loginPollTimer); return; }
+        if (done || attempts >= 90) { clearInterval(_loginPollTimer); return; }
         attempts++;
         try {
-            const logs = await apiRequest(API.getLogs + '?type=all&limit=30');
-            const text = (logs.logs || []).map(l => l.message || '').join('\n');
-            // 需要短信验证码
-            if (!smsPrompted && /短信验证码|请输入.*验证码|ctyun_sms_code/.test(text)) {
+            // 修复（2026-09-06）：链路断裂根因 —— 这里轮询 type=all 只读 Web 面板日志
+            // （web_panel.log），而短信验证码提示由登录任务进程打印到独立任务日志
+            // login_task.log，永远不会出现在 all 里，导致弹窗逻辑形同虚设、
+            // 用户被迫去终端执行 docker exec 命令。
+            // 现改为同时拉取 login 任务日志（专查验证码提示）与 all（判登录成败）。
+            const [loginLogs, allLogs] = await Promise.all([
+                apiRequest(API.getLogs + '?type=login&limit=40'),
+                apiRequest(API.getLogs + '?type=all&limit=30')
+            ]);
+            const loginText = (loginLogs.logs || []).join('\n');
+            const allText = (allLogs.logs || []).map(l => (typeof l === 'string' ? l : (l.message || ''))).join('\n');
+            const text = loginText + '\n' + allText;
+            // 需要短信验证码（登录任务会在日志中打印提示并等待验证码文件）
+            if (!smsPrompted && /短信验证|请输入.{0,12}验证码|等待短信验证码输入/.test(loginText)) {
                 smsPrompted = true;
-                const code = prompt('请输入收到的短信验证码：');
+                // 替代原生 prompt：自定义模态弹窗输入验证码
+                const code = await promptSmsCode();
                 if (code) {
-                    await apiRequest(API.smsCode, 'POST', { code });
-                    showToast('验证码已提交，登录继续中…', 'info');
+                    try {
+                        await apiRequest(API.smsCode, 'POST', { code });
+                        showToast('验证码已提交，登录继续中…', 'info');
+                    } catch (e) {
+                        showToast('验证码提交失败：' + e.message, 'error');
+                        smsPrompted = false;  // 提交失败允许再次输入
+                    }
+                } else {
+                    // 用户取消：允许后续轮询重新触发弹窗
+                    smsPrompted = false;
                 }
             }
             // 登录完成（积分抓取完成 / 登录成功账号）
@@ -1572,13 +1855,56 @@ async function pollLoginProgress(btn) {
                 if (window.loadCachedRewards) loadCachedRewards();
             }
             // 登录失败
-            if (/执行异常|重新登录失败|缺少账号或密码|缺少环境变量/.test(text)) {
+            if (/执行异常|重新登录失败|缺少账号或密码|缺少环境变量|未获取到短信验证码/.test(text)) {
                 done = true;
                 clearInterval(_loginPollTimer);
                 showToast('登录失败，请查看日志', 'error');
             }
         } catch (e) { /* 忽略轮询错误 */ }
     }, 5000);
+}
+
+// 短信验证码输入弹窗（2026-09-06 新增）：替代浏览器原生 prompt，
+// 样式与面板模态一致（毛玻璃遮罩+卡片），支持回车提交
+function promptSmsCode() {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        const box = document.createElement('div');
+        box.className = 'modal-box';
+        box.innerHTML = `
+            <div class="modal-header"><i class="mdi"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M20 2H4a2 2 0 00-2 2v18l4-4h14a2 2 0 002-2V4a2 2 0 00-2-2zm0 14H5.17L4 17.17V4h16v12zM7 9h2v2H7V9zm4 0h2v2h-2V9zm4 0h2v2h-2V9z"/></svg></i><span>需要短信验证码</span></div>
+            <div class="modal-body">
+                <div>检测到天翼云登录需要短信验证，请输入手机收到的验证码：</div>
+                <input type="text" class="form-control sms-modal-code" id="smsModalInput" maxlength="6" inputmode="numeric" placeholder="—— ——" style="margin-top:12px;text-align:center">
+                <div class="sms-modal-hint">登录任务正在等待验证码（约 5 分钟内有效），提交后登录将继续。</div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-ghost modal-cancel">取消</button>
+                <button class="btn btn-primary modal-confirm">提交验证码</button>
+            </div>`;
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add('show'));
+        const input = box.querySelector('#smsModalInput');
+        setTimeout(() => input.focus(), 250);
+
+        const close = (result) => {
+            overlay.classList.remove('show');
+            setTimeout(() => overlay.remove(), 200);
+            document.removeEventListener('keydown', onKey);
+            resolve(result);
+        };
+        const submit = () => {
+            const v = (input.value || '').trim();
+            if (v) close(v);
+        };
+        box.querySelector('.modal-cancel').addEventListener('click', () => close(null));
+        box.querySelector('.modal-confirm').addEventListener('click', submit);
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+        const onKey = (e) => { if (e.key === 'Escape') close(null); };
+        document.addEventListener('keydown', onKey);
+    });
 }
 
 function updateLoginBadge(data) {
@@ -2350,6 +2676,34 @@ document.addEventListener('DOMContentLoaded', function() {
     const btnSavePresets = document.getElementById('btnSavePresets');
     if (btnSavePresets) btnSavePresets.addEventListener('click', () => savePresetMessages(false));
 
+    // 面板安全卡（2026-09-06 新增）：开关/改密码/退出登录
+    const swPanelAuth = document.getElementById('panelAuthEnabled');
+    if (swPanelAuth) swPanelAuth.addEventListener('change', togglePanelAuth);
+    const btnChangePwd = document.getElementById('btnPanelAuthChangePwd');
+    if (btnChangePwd) btnChangePwd.addEventListener('click', openPanelAuthModal);
+    const btnPanelLogout = document.getElementById('btnPanelAuthLogout');
+    if (btnPanelLogout) btnPanelLogout.addEventListener('click', panelAuthLogout);
+
+    // 修改面板账号弹窗（2026-09-07 交互升级）：取消/保存/密码眼睛/回车提交/Esc 关闭
+    const modalCancel = document.getElementById('panelAuthModalCancel');
+    if (modalCancel) modalCancel.addEventListener('click', closePanelAuthModal);
+    const modalSave = document.getElementById('panelAuthModalSave');
+    if (modalSave) modalSave.addEventListener('click', submitPanelAuthModal);
+    bindPwdEye('modalNewPwdEye', 'modalNewPwd');
+    bindPwdEye('modalNewPwdEye2', 'modalNewPwd2');
+    const modal = document.getElementById('panelAuthModal');
+    if (modal) {
+        modal.addEventListener('click', (e) => { if (e.target === modal) closePanelAuthModal(); });
+        modal.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); submitPanelAuthModal(); }
+            if (e.key === 'Escape') closePanelAuthModal();
+        });
+    }
+
+    // 面板登录遮罩表单（2026-09-07 默认账号模式：仅登录表单，无 setup）
+    const authLoginForm = document.getElementById('panelAuthLoginForm');
+    if (authLoginForm) authLoginForm.addEventListener('submit', handlePanelAuthLogin);
+
     // 积分趋势：范围切换 + 手动刷新
     const trendRange = document.getElementById('trendRange');
     if (trendRange) trendRange.addEventListener('click', e => {
@@ -2423,4 +2777,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Auto refresh status every 30 seconds
     setInterval(refreshStatus, 30000);
+
+    // 面板鉴权检查（2026-09-06 新增）：放到初始化最后。
+    // 需要登录时展示全屏遮罩拦截操作；无需登录（桌面版/未启用）时什么都不做，
+    // 上面已有的数据加载逻辑正常执行。
+    initPanelAuth();
 });

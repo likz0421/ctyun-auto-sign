@@ -318,29 +318,41 @@ def handle_sms_validate_dialog(
             except EOFError:
                 pass
         else:
-            # 非交互模式（cron 等），等待 300 秒让用户通过 docker exec 输入
+            # 2026-09-06 重构（与 Docker 版对齐）：非交互模式（Web 面板/定时任务触发）
+            # 提示用户去 Web 面板弹窗输入验证码，不再提示 docker exec（桌面版
+            # 根本没有 docker，且任务日志里的旧命令用户也看不到）。
+            # 面板（web_server/app.py）会把网页输入的验证码写到本文件，这里轮询读取。
             print(
-                f"[*] 非交互模式，请执行以下命令输入验证码:\n"
-                f"    docker exec -it ctyun_sign_{os.getenv('APP_USER', '')} "
-                f"bash -c 'echo YOUR_CODE > {sms_code_file}'"
+                f"[*] 需要短信验证码：请在 Web 面板弹窗中输入验证码"
+                f"（面板会将验证码写入 {sms_code_file}）；"
+                f"本任务最多等待 300 秒。"
             )
-            # 清除旧文件
+            # 清除旧文件，避免误读上一次任务残留的验证码
             if os.path.exists(sms_code_file):
-                os.remove(sms_code_file)
+                try:
+                    os.remove(sms_code_file)
+                except Exception:
+                    pass
             wait_end = time.time() + 300
+            _last_remaining_bucket = -1
             while time.time() < wait_end:
                 if os.path.exists(sms_code_file):
                     try:
-                        with open(sms_code_file, "r") as f:
+                        with open(sms_code_file, "r", encoding="utf-8") as f:
                             sms_code = f.read().strip()
                         os.remove(sms_code_file)
                         if sms_code:
+                            print("[*] 已从验证码文件读取到输入，继续登录流程。")
                             break
                     except Exception:
                         pass
                 remaining = int(wait_end - time.time())
-                if remaining % 30 == 0 and remaining > 0:
-                    print(f"[*] 等待短信验证码输入... 剩余 {remaining} 秒")
+                # 按剩余秒数分桶打印（每 30 秒一条），避免轮询刷屏把
+                # "等待短信验证码输入"关键字挤出日志尾部导致面板漏检
+                bucket = remaining // 30
+                if bucket != _last_remaining_bucket:
+                    _last_remaining_bucket = bucket
+                    print(f"[*] 等待短信验证码输入... 剩余 {remaining} 秒（请在 Web 面板弹窗中输入）")
                 time.sleep(2)
 
         if not sms_code:
