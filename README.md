@@ -3,25 +3,49 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'c344223e-2dbd-4a6e-acbd-c3f6b5e9a8e9'
-  PropagateID: 'c344223e-2dbd-4a6e-acbd-c3f6b5e9a8e9'
-  ReservedCode1: 'dab560bc-005d-4130-8226-3e8ae2a16f17'
-  ReservedCode2: 'dab560bc-005d-4130-8226-3e8ae2a16f17'
+  ProduceID: '122fbfef-72ab-4cb9-929a-5a1969c9077f'
+  PropagateID: '122fbfef-72ab-4cb9-929a-5a1969c9077f'
+  ReservedCode1: '8f7c0e7a-430a-4438-b347-5655cb158804'
+  ReservedCode2: '8f7c0e7a-430a-4438-b347-5655cb158804'
 ---
 
-# 天翼云电脑保活自动化 + Web 管理面板
-
 <p align="center">
-  <img src="docs/screenshot-dashboard.png" width="100%" alt="控制台预览">
+  <img src="docs/banner.svg" width="100%" alt="天翼云电脑保活自动化">
 </p>
 
-![License](https://img.shields.io/badge/License-MIT-blue) ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white) ![Docker%20Pulls](https://img.shields.io/docker/pulls/hzww11/ctyun-auto-sign) ![Platform](https://img.shields.io/badge/Platform-amd64%20%7C%20arm64-lightgrey) ![Windows](https://img.shields.io/badge/Windows-%E6%A1%8C%E9%9D%A2%E7%89%88-0078D4?logo=windows&logoColor=white)
+<h1 align="center">天翼云电脑保活自动化 · Web 管理面板</h1>
+
+<p align="center">
+  <b>自动保活 · AI 对话 · 挂机攒积分 · 自动兑换 · Web 管理面板</b>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/License-MIT-blue" alt="License">
+  <img src="https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/docker/pulls/hzww11/ctyun-auto-sign" alt="Docker Pulls">
+  <img src="https://img.shields.io/badge/Platform-amd64%20%7C%20arm64-lightgrey" alt="Platform">
+  <img src="https://img.shields.io/badge/Windows-桌面版-0078D4?logo=windows&logoColor=white" alt="Windows">
+</p>
+
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#功能特性">功能特性</a> ·
+  <a href="#界面预览">界面预览</a> ·
+  <a href="#面板功能一览">面板功能</a> ·
+  <a href="#工作原理">工作原理</a> ·
+  <a href="#常见问题">FAQ</a> ·
+  <a href="#桌面版">桌面版</a>
+</p>
+
+---
 
 在 Docker 容器中保活天翼云电脑使其长期在线，并自动完成每日积分任务（AI 对话 +100、挂机 +100、保活积分），支持积分自动兑换。内置 Web 管理面板，浏览器里即可完成全部配置，无需改任何代码。
 
-> **没有 Docker？** [Windows 桌面绿色版](desktop/README.md) 已发布：解压双击 `CtYun.exe` 即用，无需安装 Python/.NET/浏览器，功能与 Docker 版完全一致，前往 [Releases](https://github.com/likz0421/ctyun-auto-sign/releases) 下载。
+> **没有 Docker？** [Windows 桌面绿色版](#桌面版) 已发布：解压双击 `CtYun.exe` 即用，无需安装 Python/.NET/浏览器，功能与 Docker 版完全一致，前往 [Releases](https://github.com/likz0421/ctyun-auto-sign/releases) 下载。
 
 > 本仓库为**脱敏开源版**：不含任何账号、Cookie、服务器地址等个人信息，所有配置在首次启动后通过 Web 面板填写。
+
+---
 
 ## 功能特性
 
@@ -29,7 +53,7 @@ AIGC:
 
 > ⚠️ **云手机保活为实验性功能**：依赖天翼云手机端协议，可能存在连接不稳定、积分任务不生效等问题，如遇异常请优先确认云电脑保活正常。
 - **AI 对话任务**：无头浏览器自动登录 → 发送预设消息 → 等待 AI 回复 → 领取积分
-- **挂机任务**：自动登录云电脑挂机满时长领取积分
+- **挂机任务**：自动登录云电脑挂机满时长领取积分（云端真实进度校验）
 - **调度器**：面板可视化配置定时时间，**按"时间点"级去重**（同日多个时间点均会执行），时间变更自动重置当日标记
 - **积分兑换**：每日 / 每隔 N 日 / 每月指定日期策略，可配置目标产品与所需积分
 - **通知推送**：任务成功/失败可通过 WxPusher 推送到微信（面板配置推送码与 UID）
@@ -38,17 +62,17 @@ AIGC:
 
 ## 界面预览
 
-| 设置 · 账号 | 设置 · 自动化 |
+| 控制台 · 首页 | 设置 · 账号 |
 |:---:|:---:|
-| <img src="docs/screenshot-settings.png" width="100%" alt="设置-账号"> | <img src="docs/screenshot-automation.png" width="100%" alt="设置-自动化"> |
+| <img src="docs/screenshot-dashboard.png" width="100%" alt="控制台预览"> | <img src="docs/screenshot-settings.png" width="100%" alt="设置-账号"> |
 
-| 积分兑换 | 运行日志 |
+| 设置 · 自动化 | 积分兑换 |
 |:---:|:---:|
-| <img src="docs/screenshot-redeem.png" width="100%" alt="积分兑换"> | <img src="docs/screenshot-logs.png" width="100%" alt="运行日志"> |
+| <img src="docs/screenshot-automation.png" width="100%" alt="设置-自动化"> | <img src="docs/screenshot-redeem.png" width="100%" alt="积分兑换"> |
 
-| 移动端（390px 实拍） |
-|:---:|
-| <img src="docs/screenshot-mobile.png" width="300" alt="移动端"> |
+| 运行日志 | 移动端（390px 实拍） |
+|:---:|:---:|
+| <img src="docs/screenshot-logs.png" width="100%" alt="运行日志"> | <img src="docs/screenshot-mobile.png" width="300" alt="移动端"> |
 
 > 界面支持浅色 / 深色多套主题、自定义壁纸与动态光斑；截图中的账号、密码等均为演示占位值。
 
@@ -61,11 +85,9 @@ AIGC:
 | 软件 | Docker 20.10+ 与 Docker Compose（v2 执行 `docker compose`，v1 执行 `docker-compose`） |
 | 网络 | 能访问天翼云电脑服务与 Docker Hub |
 
-> Windows / macOS 也可通过 Docker Desktop 运行，长期挂机建议使用 Linux 服务器；Windows 用户也可直接使用免 Docker 的[桌面绿色版](desktop/README.md)。
->
-> 镜像为多架构 manifest（amd64 + arm64），`docker pull` 时会根据主机架构自动匹配，无需额外参数。
+> Windows / macOS 也可通过 Docker Desktop 运行，长期挂机建议使用 Linux 服务器；Windows 用户也可直接使用免 Docker 的[桌面绿色版](#桌面版)。
 
-## 快速开始（详细部署指南）
+## 快速开始
 
 ### 方式一：Docker Compose 从源码构建（推荐）
 
@@ -160,12 +182,12 @@ docker compose up -d --build
 
 | 页面 | 说明 |
 |---|---|
-| 控制台 | 服务状态、账号概览、挂机进度、快捷任务、积分趋势 |
-| 设置 | 账号密码、AI 预设消息、登录测试、退出登录 |
-| 设备 | DEVICECODE 查看 / 复制 / 重新生成 / 自定义 |
-| 定时任务 | AI 对话与挂机的执行时间点（支持多个）、下次执行预览 |
-| 兑换 | 自动兑换开关、策略、产品配置、手动触发 |
-| 日志 | 全部 / AI 对话 / 挂机 / 系统日志，支持下载 |
+| **控制台** | 服务状态、账号概览、挂机进度、快捷任务、积分趋势 |
+| **设置** | 账号密码、AI 预设消息、登录测试、退出登录 |
+| **设备** | DEVICECODE 查看 / 复制 / 重新生成 / 自定义 |
+| **定时任务** | AI 对话与挂机的执行时间点（支持多个）、下次执行预览 |
+| **兑换** | 自动兑换开关、策略、产品配置、手动触发 |
+| **日志** | 全部 / AI 对话 / 挂机 / 保活 / 系统日志，支持下载 |
 
 ## 项目结构
 
@@ -194,6 +216,7 @@ docker compose up -d --build
 - **Web 后端**内置 Python 调度线程，按面板配置的时间点触发任务（子进程执行脚本），带任务互斥锁与"时间点级"执行标记
 - **AI 对话**：DrissionPage 驱动 headless Chromium，Cookie 免密优先 → 失效则账密登录（含图形验证码 OCR），输入框元素多重回退定位 + JS 事件派发，健壮性优先
 - **保活**：容器内 `entrypoint.sh` 主循环周期性启动 `CtYun.dll` 连接窗口，自动保活账号下全部云电脑（D 开头）与云手机（M 开头）设备，间隔/开关由面板配置热同步
+- **挂机**：每轮查询云端真实挂机进度（`taskDefName == "使用1小时"` 的 `currentProgress`），云端达标才宣告完成，杜绝墙钟假完成
 - **前端**：原生 HTML/CSS/JS 单页应用，内联 SVG 图标库，无外部依赖，可完全离线使用
 
 ## 常用命令
@@ -223,17 +246,32 @@ docker compose stop / docker compose up -d
 **Q3：云手机有没有被保活？**
 保活核心会自动保活账号下全部设备：日志中 `D` 开头的设备码为云电脑、`M` 开头为云手机，两者都会周期性连接并保活。面板「运行日志」页切换到**保活日志**分类即可看到两类设备记录。⚠️ 云手机保活为**实验性功能**：依赖天翼云手机端协议，可能存在连接不稳定、积分任务不生效等问题，如遇异常请优先确认云电脑保活正常。
 
-**Q4：挂机黑屏 / CDN 连接慢？**
+**Q4：挂机显示完成但积分没到账？**
+面板显示"挂机完成（云端未达标）"表示云电脑实际在线时长未满 1 小时（登录耗时/断线重连会占用时间），此时不会发积分，可重新触发挂机补足时长。
+
+**Q5：挂机黑屏 / CDN 连接慢？**
 部分地区访问天翼云 CDN 较慢，可在 `docker-compose.yml` 中按注释添加 `extra_hosts` 域名映射加速。
 
-**Q5：定时任务没执行？**
+**Q6：定时任务没执行？**
 确认面板"定时任务"里时间点已保存；确认容器时区为 Asia/Shanghai；到"日志"页看对应任务记录。修改时间后当日执行标记会自动重置，无需重启容器。
 
-**Q6：如何修改面板端口？**
+**Q7：如何修改面板端口？**
 改 `docker-compose.yml` 中 `ports: - "8090:8080"` 左侧的 8090 为任意端口，`docker compose up -d` 重启生效。
 
-**Q7：面板暴露公网安全吗？**
+**Q8：面板暴露公网安全吗？**
 建议加一层反向代理（Nginx / Caddy）并开启访问认证后再暴露公网，或仅在内网 / VPN 环境使用。
+
+## 桌面版
+
+Windows 免 Docker 绿色版：解压即用、双击 `CtYun.exe` 启动，内置 Python/.NET 运行时，功能与 Docker 版一致。详见 [desktop/README.md](desktop/README.md)。
+
+| 特性 | Docker 版 | 桌面版 |
+|------|-----------|--------|
+| 启动 | `docker compose up -d` | 双击 `CtYun.exe` |
+| 后台常驻 | 容器守护 | 控制台窗口 |
+| 数据目录 | `./data` 挂载卷 | `CtYun\data\` |
+| 端口 | `8090:8080` | `127.0.0.1:8090` |
+| 依赖 | 需 Docker | 无需任何安装 |
 
 ## 来源与致谢
 
@@ -247,4 +285,4 @@ docker compose stop / docker compose up -d
 
 ## License
 
-MIT
+[MIT](LICENSE)

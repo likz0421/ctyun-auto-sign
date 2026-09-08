@@ -3,13 +3,38 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'ff94c97f-be12-4e7c-9463-ebddf8d46fba'
-  PropagateID: 'ff94c97f-be12-4e7c-9463-ebddf8d46fba'
-  ReservedCode1: 'affccd82-2fd4-4142-b478-28a400ddb895'
-  ReservedCode2: 'affccd82-2fd4-4142-b478-28a400ddb895'
+  ProduceID: '6f5566c7-17ef-4fae-866c-5aadc4c4efa1'
+  PropagateID: '6f5566c7-17ef-4fae-866c-5aadc4c4efa1'
+  ReservedCode1: '778feacd-1ce1-46aa-a777-4582bc103292'
+  ReservedCode2: '778feacd-1ce1-46aa-a777-4582bc103292'
 ---
 
-# 天翼云电脑自动化 - Windows 桌面版
+<p align="center">
+  <img src="../docs/banner.svg" width="100%" alt="天翼云电脑保活自动化">
+</p>
+
+<h1 align="center">天翼云电脑自动化 · Windows 桌面版</h1>
+
+<p align="center">
+  <b>解压即用 · 双击 `CtYun.exe` 启动 · 功能与 Docker 版完全一致</b>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Windows-Win10%20%2F%2011-0078D4?logo=windows&logoColor=white" alt="Windows">
+  <img src="https://img.shields.io/badge/Python-内置-brightgreen" alt="Python">
+  <img src="https://img.shields.io/badge/.NET-内置-512BD4?logo=.net&logoColor=white" alt=".NET">
+  <img src="https://img.shields.io/badge/License-MIT-blue" alt="License">
+</p>
+
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#使用说明">使用说明</a> ·
+  <a href="#常见问题">FAQ</a> ·
+  <a href="#与-Docker-版的对应关系">与 Docker 版对比</a> ·
+  <a href="https://github.com/likz0421/ctyun-auto-sign/blob/main/README.md">返回主 README</a>
+</p>
+
+---
 
 Windows 桌面绿色版：**解压即用，双击 `CtYun.exe` 启动**，功能与 Docker 版完全一致（自动登录、保活攒积分、AI 对话、积分兑换、Web 管理面板）。
 
@@ -59,7 +84,7 @@ CtYun\
 先用命令行运行查看报错：`Win+R` 输入 `cmd`，把 `CtYun.exe` 拖进窗口回车。常见原因：解压不完整（缺 runtime 或 dotnet 目录）、所在盘/目录不可写。
 
 **Q：8090 端口被占用？**
-编辑启动方式：`CtYun.exe` 无法直接改端口时，可在命令行用环境变量启动：
+可用命令行环境变量方式指定端口启动：
 ```bat
 set WEB_PORT=9090 && CtYun.exe
 ```
